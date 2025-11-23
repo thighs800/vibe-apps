@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scream Jump</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F7FA 100%);
+            overflow: hidden;
+        }
+
+        .player {
+            position: absolute;
+            font-size: 40px;
+            line-height: 1;
+            transform: translateX(-50%);
+            transition: transform 0.1s;
+        }
+
+        .obstacle {
+            position: absolute;
+            font-size: 40px;
+            line-height: 1;
+        }
+
+        .ground {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 50px;
+            background-color: #8B4513;
+            border-top: 5px solid #5D4037;
+        }
+
+        #volume-meter {
+            transition: width 0.05s linear;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-slate-700 hover:text-slate-900 transition-colors bg-white/80 px-4 py-2 rounded-lg shadow-sm hover:shadow-md border border-slate-200 font-medium">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer"
+        class="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+            <h1 class="text-4xl font-bold mb-2 text-indigo-600">Scream Jump 😱</h1>
+            <p class="text-gray-600 mb-6">Make noise to jump! Louder = Higher.</p>
+
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Microphone Sensitivity</label>
+                <input type="range" id="sensitivity" min="1" max="100" value="50"
+                    class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Low Sensitivity</span>
+                    <span>High Sensitivity</span>
+                </div>
+            </div>
+
+            <button id="start-btn"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl transition-transform hover:scale-105 active:scale-95 shadow-lg">
+                Enable Mic & Start Game
+            </button>
+
+            <div id="game-over-msg" class="hidden mt-4">
+                <p class="text-red-500 font-bold text-xl mb-2">Game Over!</p>
+                <p class="text-gray-700">Score: <span id="final-score">0</span></p>
+                <button onclick="resetGame()" class="mt-4 text-indigo-600 font-semibold hover:underline">Try
+                    Again</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div class="absolute top-0 left-0 w-full z-30 p-4 flex flex-col items-center pointer-events-none">
+        <div class="w-full max-w-md bg-gray-900/50 rounded-full h-4 overflow-hidden backdrop-blur">
+            <div id="volume-meter" class="h-full bg-gradient-to-r from-green-400 to-red-500 w-0"></div>
+        </div>
+        <div class="mt-2 text-2xl font-bold text-slate-800 drop-shadow-md">Score: <span id="score">0</span></div>
+    </div>
+
+    <!-- Game World -->
+    <div id="game-container">
+        <div id="player" class="player" style="left: 100px; bottom: 50px;">😱</div>
+        <div class="ground"></div>
+    </div>
+
+    <script>
+        // Game Constants
+        const GRAVITY = 0.6;
+        const JUMP_FORCE_MULTIPLIER = 1.5; // Multiplier for volume to velocity
+        const MIN_JUMP_FORCE = 10;
+        const MAX_JUMP_FORCE = 25;
+        const OBSTACLE_SPEED = 5;
+        const OBSTACLE_SPAWN_RATE = 1500; // ms
+
+        // State
+        let isGameRunning = false;
+        let score = 0;
+        let playerY = 50; // Distance from bottom
+        let velocityY = 0;
+        let obstacles = [];
+        let lastTime = 0;
+        let spawnTimer = 0;
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let sensitivity = 50; // 1-100
+
+        // DOM Elements
+        const playerEl = document.getElementById('player');
+        const gameContainer = document.getElementById('game-container');
+        const scoreEl = document.getElementById('score');
+        const volumeMeter = document.getElementById('volume-meter');
+        const uiLayer = document.getElementById('ui-layer');
+        const startBtn = document.getElementById('start-btn');
+        const sensitivityInput = document.getElementById('sensitivity');
+        const gameOverMsg = document.getElementById('game-over-msg');
+        const finalScoreEl = document.getElementById('final-score');
+
+        // Audio Setup
+        async function setupAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                return true;
+            } catch (err) {
+                console.error("Audio Error:", err);
+                alert("Microphone access is required to play this game!");
+                return false;
+            }
+        }
+
+        function getVolume() {
+            if (!analyser) return 0;
+            analyser.getByteFrequencyData(dataArray);
+
+            // Calculate RMS (Root Mean Square) for better volume estimation
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            return rms;
+        }
+
+        // Game Loop
+        function update(timestamp) {
+            if (!isGameRunning) return;
+
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // 1. Process Audio Input
+            const volume = getVolume();
+            // Normalize volume (0-255) to percentage (0-100)
+            // Adjust based on sensitivity slider. 
+            // Sensitivity 100 = very sensitive (low threshold), 1 = not sensitive (high threshold)
+            // Let's invert sensitivity logic for the threshold calculation:
+            // High sensitivity value in UI means we want to react to LOWER volumes.
+            // Threshold range: 10 (sensitive) to 100 (loud).
+            const threshold = 110 - sensitivity;
+
+            // Visualizer
+            const meterWidth = Math.min(100, (volume / 100) * 100);
+            volumeMeter.style.width = `${meterWidth}%`;
+
+            // Jump Logic
+            // Only jump if on ground
+            if (playerY <= 50) {
+                if (volume > threshold) {
+                    // Calculate jump force based on how loud it was relative to threshold
+                    // Cap it
+                    let force = (volume / threshold) * MIN_JUMP_FORCE * 0.8;
+                    force = Math.max(MIN_JUMP_FORCE, Math.min(force, MAX_JUMP_FORCE));
+                    velocityY = force;
+
+                    // Visual feedback
+                    playerEl.style.transform = "translateX(-50%) scale(1.2)";
+                    setTimeout(() => playerEl.style.transform = "translateX(-50%) scale(1)", 100);
+                }
+            }
+
+            // 2. Physics
+            playerY += velocityY;
+            velocityY -= GRAVITY;
+
+            // Ground collision
+            if (playerY < 50) {
+                playerY = 50;
+                velocityY = 0;
+            }
+
+            playerEl.style.bottom = `${playerY}px`;
+
+            // 3. Obstacles
+            spawnTimer += deltaTime;
+            if (spawnTimer > OBSTACLE_SPAWN_RATE) {
+                spawnObstacle();
+                spawnTimer = 0;
+            }
+
+            // Move and check collision
+            const playerRect = playerEl.getBoundingClientRect();
+
+            // We need to iterate backwards to remove items safely
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.x -= OBSTACLE_SPEED;
+                obs.el.style.left = `${obs.x}px`;
+
+                // Score update (passed obstacle)
+                if (!obs.passed && obs.x < 50) {
+                    score++;
+                    scoreEl.innerText = score;
+                    obs.passed = true;
+                }
+
+                // Remove off-screen
+                if (obs.x < -50) {
+                    obs.el.remove();
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                // Collision Detection
+                // Simple AABB
+                const obsRect = obs.el.getBoundingClientRect();
+
+                // Shrink hitboxes slightly for fairness
+                const hitX = playerRect.left + 10 < obsRect.right - 10 && playerRect.right - 10 > obsRect.left + 10;
+                const hitY = playerRect.bottom - 10 > obsRect.top + 10; // Player bottom is below obstacle top
+
+                if (hitX && hitY) {
+                    gameOver();
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function spawnObstacle() {
+            const el = document.createElement('div');
+            el.className = 'obstacle';
+            el.innerText = Math.random() > 0.5 ? '🧱' : '🌵';
+            el.style.left = '100%';
+            el.style.bottom = '50px';
+            gameContainer.appendChild(el);
+
+            obstacles.push({
+                el: el,
+                x: window.innerWidth,
+                passed: false
+            });
+        }
+
+        function gameOver() {
+            isGameRunning = false;
+            uiLayer.classList.remove('hidden');
+            uiLayer.style.display = 'flex'; // Ensure flex is restored
+            startBtn.classList.add('hidden');
+            gameOverMsg.classList.remove('hidden');
+            finalScoreEl.innerText = score;
+        }
+
+        function resetGame() {
+            // Clear obstacles
+            obstacles.forEach(o => o.el.remove());
+            obstacles = [];
+
+            score = 0;
+            scoreEl.innerText = '0';
+            playerY = 50;
+            velocityY = 0;
+            spawnTimer = 0;
+
+            uiLayer.classList.add('hidden');
+            uiLayer.style.display = 'none';
+
+            isGameRunning = true;
+            lastTime = performance.now();
+            requestAnimationFrame(update);
+        }
+
+        // Event Listeners
+        startBtn.addEventListener('click', async () => {
+            const success = await setupAudio();
+            if (success) {
+                resetGame();
+            }
+        });
+
+        sensitivityInput.addEventListener('input', (e) => {
+            sensitivity = parseInt(e.target.value);
+        });
+
+    </script>
+</body>
+
+</html>
