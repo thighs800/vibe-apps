@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Unclickable Button</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #fdfbf7;
+            /* Creamy pastel */
+            overflow: hidden;
+            /* Prevent scrollbars when button moves near edge */
+        }
+
+        #target-btn {
+            transition: all 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            position: absolute;
+            /* Start centered */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .cheater-bg {
+            background-color: #ef4444 !important;
+            /* Red-500 */
+            transition: background-color 0.5s ease;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen relative font-sans select-none">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors bg-white/80 px-4 py-2 rounded-lg shadow-sm hover:shadow-md border border-slate-200 font-medium">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Counter -->
+    <div class="absolute top-4 right-4 z-40 text-slate-400 font-mono text-xl">
+        Attempts: <span id="counter">0</span>
+    </div>
+
+    <!-- The Button -->
+    <button id="target-btn"
+        class="bg-gradient-to-b from-yellow-300 to-yellow-500 hover:from-yellow-400 hover:to-yellow-600 text-yellow-900 font-bold py-4 px-8 rounded-full shadow-[0_10px_20px_rgba(0,0,0,0.2),0_6px_6px_rgba(0,0,0,0.23)] border-b-4 border-yellow-700 active:border-b-0 active:translate-y-1 text-xl uppercase tracking-wider flex items-center gap-2 z-30">
+        <span>Claim Your Prize</span>
+        <span class="text-2xl">🎁</span>
+    </button>
+
+    <div id="message"
+        class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white text-6xl font-black text-center z-50 drop-shadow-lg">
+        CHEATER!
+    </div>
+
+    <script>
+        const btn = document.getElementById('target-btn');
+        const counterEl = document.getElementById('counter');
+        const body = document.body;
+        const msg = document.getElementById('message');
+
+        let attempts = 0;
+        let isCheater = false;
+
+        // Configuration
+        const THRESHOLD = 150; // Distance in pixels to trigger movement
+        const PADDING = 100; // Keep button away from edges
+
+        function moveButton() {
+            if (isCheater) return;
+
+            attempts++;
+            counterEl.innerText = attempts;
+
+            // Calculate new random position
+            // Ensure it stays within viewport with padding
+            const maxX = window.innerWidth - btn.offsetWidth - PADDING;
+            const maxY = window.innerHeight - btn.offsetHeight - PADDING;
+            const minX = PADDING;
+            const minY = PADDING;
+
+            const newX = Math.random() * (maxX - minX) + minX;
+            const newY = Math.random() * (maxY - minY) + minY;
+
+            // Apply new position. Note: we remove the transform translate centering logic 
+            // and use direct top/left positioning after first move.
+            btn.style.transform = 'none';
+            btn.style.left = `${newX}px`;
+            btn.style.top = `${newY}px`;
+        }
+
+        function getDistance(x1, y1, x2, y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+
+        // Mouse movement handler
+        document.addEventListener('mousemove', (e) => {
+            if (isCheater) return;
+
+            const rect = btn.getBoundingClientRect();
+            const btnCenterX = rect.left + rect.width / 2;
+            const btnCenterY = rect.top + rect.height / 2;
+
+            const dist = getDistance(e.clientX, e.clientY, btnCenterX, btnCenterY);
+
+            if (dist < THRESHOLD) {
+                moveButton();
+            }
+        });
+
+        // Touch handler for mobile
+        btn.addEventListener('touchstart', (e) => {
+            if (isCheater) return;
+            e.preventDefault(); // Prevent click
+            moveButton();
+        });
+
+        // Click handler (Cheat detection)
+        btn.addEventListener('click', () => {
+            isCheater = true;
+            body.classList.add('cheater-bg');
+            btn.style.display = 'none';
+            msg.classList.remove('hidden');
+            alert("You are a cheater! (チーター乙)");
+        });
+
+        // Prevent tab navigation to the button for extra annoyance
+        btn.tabIndex = -1;
+
+    </script>
+</body>
+
+</html>
