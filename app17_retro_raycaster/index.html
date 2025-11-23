@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Raycaster</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-green-500 hover:text-green-300 transition-colors bg-black/80 px-4 py-2 rounded border border-green-800 font-bold backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls Hint -->
+    <div class="absolute bottom-4 left-4 z-50 text-green-500 bg-black/50 p-2 rounded pointer-events-none">
+        WASD / Arrows to Move
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Screen Dimensions
+        let screenWidth = window.innerWidth;
+        let screenHeight = window.innerHeight;
+        canvas.width = screenWidth;
+        canvas.height = screenHeight;
+
+        window.addEventListener('resize', () => {
+            screenWidth = window.innerWidth;
+            screenHeight = window.innerHeight;
+            canvas.width = screenWidth;
+            canvas.height = screenHeight;
+        });
+
+        // Map Configuration (1 = Wall, 0 = Empty)
+        const mapWidth = 24;
+        const mapHeight = 24;
+        const worldMap = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 3, 0, 3, 0, 3, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2, 0, 0, 0, 0, 3, 0, 3, 0, 3, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 0, 0, 0, 0, 5, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        // Player State
+        let posX = 22, posY = 12;  // Start position
+        let dirX = -1, dirY = 0;   // Initial direction vector
+        let planeX = 0, planeY = 0.66; // The 2D raycaster version of camera plane
+
+        // Input State
+        const keys = {
+            w: false, s: false, a: false, d: false,
+            ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
+
+        // Game Loop
+        let lastTime = 0;
+        const moveSpeed = 5.0; // squares/sec
+        const rotSpeed = 3.0; // radians/sec
+
+        function gameLoop(timestamp) {
+            const deltaTime = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+
+            update(deltaTime);
+            draw();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update(dt) {
+            // Rotation
+            if (keys.d || keys.ArrowRight) {
+                // Both camera direction and camera plane must be rotated
+                const oldDirX = dirX;
+                dirX = dirX * Math.cos(-rotSpeed * dt) - dirY * Math.sin(-rotSpeed * dt);
+                dirY = oldDirX * Math.sin(-rotSpeed * dt) + dirY * Math.cos(-rotSpeed * dt);
+                const oldPlaneX = planeX;
+                planeX = planeX * Math.cos(-rotSpeed * dt) - planeY * Math.sin(-rotSpeed * dt);
+                planeY = oldPlaneX * Math.sin(-rotSpeed * dt) + planeY * Math.cos(-rotSpeed * dt);
+            }
+            if (keys.a || keys.ArrowLeft) {
+                const oldDirX = dirX;
+                dirX = dirX * Math.cos(rotSpeed * dt) - dirY * Math.sin(rotSpeed * dt);
+                dirY = oldDirX * Math.sin(rotSpeed * dt) + dirY * Math.cos(rotSpeed * dt);
+                const oldPlaneX = planeX;
+                planeX = planeX * Math.cos(rotSpeed * dt) - planeY * Math.sin(rotSpeed * dt);
+                planeY = oldPlaneX * Math.sin(rotSpeed * dt) + planeY * Math.cos(rotSpeed * dt);
+            }
+
+            // Movement
+            const moveStep = moveSpeed * dt;
+            if (keys.w || keys.ArrowUp) {
+                if (worldMap[Math.floor(posX + dirX * moveStep)][Math.floor(posY)] == 0) posX += dirX * moveStep;
+                if (worldMap[Math.floor(posX)][Math.floor(posY + dirY * moveStep)] == 0) posY += dirY * moveStep;
+            }
+            if (keys.s || keys.ArrowDown) {
+                if (worldMap[Math.floor(posX - dirX * moveStep)][Math.floor(posY)] == 0) posX -= dirX * moveStep;
+                if (worldMap[Math.floor(posX)][Math.floor(posY - dirY * moveStep)] == 0) posY -= dirY * moveStep;
+            }
+        }
+
+        function draw() {
+            // Clear screen (Ceiling and Floor)
+            ctx.fillStyle = '#333'; // Ceiling
+            ctx.fillRect(0, 0, screenWidth, screenHeight / 2);
+            ctx.fillStyle = '#111'; // Floor
+            ctx.fillRect(0, screenHeight / 2, screenWidth, screenHeight / 2);
+
+            // Raycasting
+            for (let x = 0; x < screenWidth; x++) {
+                // Calculate ray position and direction
+                const cameraX = 2 * x / screenWidth - 1; // x-coordinate in camera space
+                const rayDirX = dirX + planeX * cameraX;
+                const rayDirY = dirY + planeY * cameraX;
+
+                // Which box of the map we're in
+                let mapX = Math.floor(posX);
+                let mapY = Math.floor(posY);
+
+                // Length of ray from current position to next x or y-side
+                let sideDistX;
+                let sideDistY;
+
+                // Length of ray from one x or y-side to next x or y-side
+                const deltaDistX = (rayDirX === 0) ? 1e30 : Math.abs(1 / rayDirX);
+                const deltaDistY = (rayDirY === 0) ? 1e30 : Math.abs(1 / rayDirY);
+                let perpWallDist;
+
+                // What direction to step in x or y-direction (either +1 or -1)
+                let stepX;
+                let stepY;
+
+                let hit = 0; // Was there a wall hit?
+                let side; // Was a NS or a EW wall hit?
+
+                // Calculate step and initial sideDist
+                if (rayDirX < 0) {
+                    stepX = -1;
+                    sideDistX = (posX - mapX) * deltaDistX;
+                } else {
+                    stepX = 1;
+                    sideDistX = (mapX + 1.0 - posX) * deltaDistX;
+                }
+                if (rayDirY < 0) {
+                    stepY = -1;
+                    sideDistY = (posY - mapY) * deltaDistY;
+                } else {
+                    stepY = 1;
+                    sideDistY = (mapY + 1.0 - posY) * deltaDistY;
+                }
+
+                // Perform DDA
+                while (hit === 0) {
+                    // Jump to next map square, OR in x-direction, OR in y-direction
+                    if (sideDistX < sideDistY) {
+                        sideDistX += deltaDistX;
+                        mapX += stepX;
+                        side = 0;
+                    } else {
+                        sideDistY += deltaDistY;
+                        mapY += stepY;
+                        side = 1;
+                    }
+                    // Check if ray has hit a wall
+                    if (worldMap[mapX][mapY] > 0) hit = 1;
+                }
+
+                // Calculate distance projected on camera direction (Euclidean distance will give fisheye effect!)
+                if (side === 0) perpWallDist = (sideDistX - deltaDistX);
+                else perpWallDist = (sideDistY - deltaDistY);
+
+                // Calculate height of line to draw on screen
+                const lineHeight = Math.floor(screenHeight / perpWallDist);
+
+                // Calculate lowest and highest pixel to fill in current stripe
+                let drawStart = -lineHeight / 2 + screenHeight / 2;
+                if (drawStart < 0) drawStart = 0;
+                let drawEnd = lineHeight / 2 + screenHeight / 2;
+                if (drawEnd >= screenHeight) drawEnd = screenHeight - 1;
+
+                // Choose wall color
+                const colorType = worldMap[mapX][mapY];
+                let color;
+                switch (colorType) {
+                    case 1: color = [0, 255, 0]; break; // Green
+                    case 2: color = [0, 0, 255]; break; // Blue
+                    case 3: color = [255, 255, 255]; break; // White
+                    case 4: color = [255, 255, 0]; break; // Yellow
+                    default: color = [255, 0, 0]; break; // Red
+                }
+
+                // Give x and y sides different brightness
+                if (side === 1) {
+                    color = color.map(c => c / 2);
+                }
+
+                // Distance shading (fog)
+                const brightness = Math.min(1, 2.0 / perpWallDist); // Simple inverse distance fog
+                color = color.map(c => Math.floor(c * brightness));
+
+                ctx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+                ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+            }
+
+            // Minimap
+            drawMinimap();
+        }
+
+        function drawMinimap() {
+            const scale = 5;
+            const mapSize = mapWidth * scale;
+            const offsetX = screenWidth - mapSize - 20;
+            const offsetY = 20;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(offsetX, offsetY, mapSize, mapHeight * scale);
+
+            // Walls
+            ctx.fillStyle = '#555';
+            for (let y = 0; y < mapHeight; y++) {
+                for (let x = 0; x < mapWidth; x++) {
+                    if (worldMap[x][y] > 0) {
+                        ctx.fillRect(offsetX + x * scale, offsetY + y * scale, scale, scale);
+                    }
+                }
+            }
+
+            // Player
+            ctx.fillStyle = '#0f0';
+            ctx.beginPath();
+            ctx.arc(offsetX + posX * scale, offsetY + posY * scale, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Direction
+            ctx.strokeStyle = '#0f0';
+            ctx.beginPath();
+            ctx.moveTo(offsetX + posX * scale, offsetY + posY * scale);
+            ctx.lineTo(offsetX + (posX + dirX * 2) * scale, offsetY + (posY + dirY * 2) * scale);
+            ctx.stroke();
+        }
+
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+
+</html>

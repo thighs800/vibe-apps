@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Browser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            font-family: 'Courier New', monospace;
+        }
+
+        .visualizer-bar {
+            transition: height 0.1s ease;
+        }
+
+        .beat-hit {
+            animation: pulse 0.1s ease-out;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                filter: brightness(1);
+            }
+
+            50% {
+                transform: scale(1.02);
+                filter: brightness(1.5);
+            }
+
+            100% {
+                transform: scale(1);
+                filter: brightness(1);
+            }
+        }
+
+        .neon-text {
+            text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de, 0 0 30px #ff00de, 0 0 40px #ff00de;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col items-center justify-center text-white p-4 overflow-hidden">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-purple-300 hover:text-white transition-colors border border-purple-500/30 hover:border-purple-500 px-4 py-2 rounded bg-black/40 backdrop-blur-sm">
+            <span>&lt;-</span> Home
+        </a>
+    </nav>
+
+    <!-- Main Stage -->
+    <main class="w-full max-w-3xl flex flex-col items-center gap-8 z-10">
+
+        <h1 class="text-5xl md:text-7xl font-black tracking-tighter neon-text mb-4 text-center">
+            MC BROWSER
+        </h1>
+
+        <!-- Visualizer -->
+        <div class="flex items-end justify-center gap-1 h-32 w-full mb-8 opacity-80">
+            <div class="visualizer-bar w-4 bg-purple-500 rounded-t-lg h-4"></div>
+            <div class="visualizer-bar w-4 bg-pink-500 rounded-t-lg h-8"></div>
+            <div class="visualizer-bar w-4 bg-purple-500 rounded-t-lg h-12"></div>
+            <div class="visualizer-bar w-4 bg-pink-500 rounded-t-lg h-6"></div>
+            <div class="visualizer-bar w-4 bg-purple-500 rounded-t-lg h-16"></div>
+            <div class="visualizer-bar w-4 bg-pink-500 rounded-t-lg h-10"></div>
+            <div class="visualizer-bar w-4 bg-purple-500 rounded-t-lg h-20"></div>
+            <div class="visualizer-bar w-4 bg-pink-500 rounded-t-lg h-8"></div>
+            <div class="visualizer-bar w-4 bg-purple-500 rounded-t-lg h-4"></div>
+        </div>
+
+        <!-- Lyrics Input -->
+        <div class="w-full relative group">
+            <div
+                class="absolute -inset-1 bg-gradient-to-r from-pink-600 to-purple-600 rounded-lg blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200">
+            </div>
+            <textarea id="lyrics" rows="6"
+                class="relative w-full bg-black/50 border border-purple-500/50 rounded-lg p-6 text-xl text-purple-100 placeholder-purple-500/50 focus:outline-none focus:border-pink-500 transition-colors resize-none"
+                placeholder="Yo, type your lyrics here...&#10;Make it rhyme, make it clear...&#10;The browser is the MC of the year..."></textarea>
+        </div>
+
+        <!-- Controls -->
+        <button id="play-btn" onclick="togglePlay()"
+            class="relative px-12 py-6 bg-black border-2 border-pink-500 rounded-full text-2xl font-bold tracking-widest hover:bg-pink-500 hover:text-white transition-all duration-200 shadow-[0_0_20px_rgba(236,72,153,0.3)] hover:shadow-[0_0_40px_rgba(236,72,153,0.6)] active:scale-95">
+            DROP THE BEAT
+        </button>
+
+        <div id="status" class="h-6 text-pink-400 font-bold tracking-wider"></div>
+
+    </main>
+
+    <script>
+        let audioCtx;
+        let isPlaying = false;
+        let beatInterval;
+        let nextNoteTime = 0;
+        let beatCount = 0;
+        const tempo = 100;
+        const lookahead = 25.0;
+        const scheduleAheadTime = 0.1;
+
+        const lyricsInput = document.getElementById('lyrics');
+        const playBtn = document.getElementById('play-btn');
+        const statusEl = document.getElementById('status');
+        const bars = document.querySelectorAll('.visualizer-bar');
+
+        // Audio Synthesis
+        function playKick(time) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.frequency.setValueAtTime(150, time);
+            osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+            gain.gain.setValueAtTime(1, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+
+            osc.start(time);
+            osc.stop(time + 0.5);
+
+            // Visuals
+            setTimeout(() => triggerVisuals('kick'), (time - audioCtx.currentTime) * 1000);
+        }
+
+        function playSnare(time) {
+            const noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.2, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < noiseBuffer.length; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = noiseBuffer;
+            const noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'highpass';
+            noiseFilter.frequency.value = 1000;
+            const noiseEnvelope = audioCtx.createGain();
+
+            noise.connect(noiseFilter);
+            noiseFilter.connect(noiseEnvelope);
+            noiseEnvelope.connect(audioCtx.destination);
+
+            noiseEnvelope.gain.setValueAtTime(1, time);
+            noiseEnvelope.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+            noise.start(time);
+
+            // Visuals
+            setTimeout(() => triggerVisuals('snare'), (time - audioCtx.currentTime) * 1000);
+        }
+
+        function scheduler() {
+            while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+                scheduleNote(beatCount, nextNoteTime);
+                nextNoteTime += 60.0 / tempo;
+                beatCount++;
+            }
+            if (isPlaying) {
+                beatInterval = requestAnimationFrame(scheduler);
+            }
+        }
+
+        function scheduleNote(beatNumber, time) {
+            // Simple 4/4 beat: Kick on 0, 2; Snare on 1, 3
+            // 0: Kick
+            // 1: Snare
+            // 2: Kick + Kick (double)
+            // 3: Snare
+
+            const beat = beatNumber % 4;
+
+            if (beat === 0) {
+                playKick(time);
+            } else if (beat === 1) {
+                playSnare(time);
+            } else if (beat === 2) {
+                playKick(time);
+                playKick(time + 0.15); // Double kick
+            } else if (beat === 3) {
+                playSnare(time);
+            }
+        }
+
+        // Rap Engine
+        function startRapping() {
+            if (!window.speechSynthesis) {
+                alert("Sorry, your browser doesn't support the Web Speech API.");
+                return;
+            }
+
+            const text = lyricsInput.value || lyricsInput.placeholder;
+            // Split by newlines or punctuation, but keep flow
+            const chunks = text.split(/[\n.,!?;]+/).filter(c => c.trim().length > 0);
+
+            let chunkIndex = 0;
+
+            function speakNext() {
+                if (!isPlaying) return;
+                if (chunkIndex >= chunks.length) {
+                    chunkIndex = 0; // Loop
+                }
+
+                const utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+
+                // Randomize flow
+                utterance.rate = 0.8 + Math.random() * 0.8; // 0.8 - 1.6
+                utterance.pitch = 0.5 + Math.random() * 1.0; // 0.5 - 1.5
+                utterance.volume = 1.0;
+
+                // Select a random voice if available (prefer English)
+                const voices = window.speechSynthesis.getVoices();
+                const enVoices = voices.filter(v => v.lang.startsWith('en'));
+                if (enVoices.length > 0) {
+                    utterance.voice = enVoices[Math.floor(Math.random() * enVoices.length)];
+                }
+
+                utterance.onend = () => {
+                    if (isPlaying) {
+                        // Small pause between lines for rhythm
+                        setTimeout(speakNext, Math.random() * 500);
+                    }
+                };
+
+                window.speechSynthesis.speak(utterance);
+
+                // Display current line
+                statusEl.innerText = chunks[chunkIndex];
+
+                chunkIndex++;
+            }
+
+            speakNext();
+        }
+
+        // Visuals
+        function triggerVisuals(type) {
+            document.body.classList.add('beat-hit');
+            setTimeout(() => document.body.classList.remove('beat-hit'), 100);
+
+            bars.forEach(bar => {
+                const h = Math.random() * 100;
+                bar.style.height = `${h}%`;
+            });
+        }
+
+        // Main Control
+        function togglePlay() {
+            if (isPlaying) {
+                isPlaying = false;
+                window.speechSynthesis.cancel();
+                if (audioCtx) audioCtx.suspend();
+                cancelAnimationFrame(beatInterval);
+                playBtn.innerText = "DROP THE BEAT";
+                playBtn.classList.remove('bg-pink-500', 'text-white');
+                playBtn.classList.add('bg-black');
+                statusEl.innerText = "";
+            } else {
+                isPlaying = true;
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                audioCtx.resume();
+
+                nextNoteTime = audioCtx.currentTime;
+                beatCount = 0;
+                scheduler();
+                startRapping();
+
+                playBtn.innerText = "STOP THE MADNESS";
+                playBtn.classList.remove('bg-black');
+                playBtn.classList.add('bg-pink-500', 'text-white');
+            }
+        }
+
+        // Init voices
+        window.speechSynthesis.getVoices();
+
+    </script>
+</body>
+
+</html>

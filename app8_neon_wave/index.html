@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Cube Wave</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+        }
+
+        nav {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+
+        a {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.5);
+            font-family: sans-serif;
+            transition: all 0.2s;
+        }
+
+        a:hover {
+            color: white;
+            border-color: white;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        #instruction {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.3);
+            font-family: sans-serif;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav>
+        <a href="../index.html">← Home</a>
+    </nav>
+
+    <div id="instruction">Move mouse to rotate • Click to change colors</div>
+
+    <script>
+        // Scene Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050510);
+        scene.fog = new THREE.Fog(0x050510, 10, 50);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 10, 15);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+        pointLight.position.set(0, 20, 10);
+        scene.add(pointLight);
+
+        const pointLight2 = new THREE.PointLight(0xff00ff, 0.5, 50);
+        pointLight2.position.set(-10, 5, 5);
+        scene.add(pointLight2);
+
+        const pointLight3 = new THREE.PointLight(0x00ffff, 0.5, 50);
+        pointLight3.position.set(10, 5, 5);
+        scene.add(pointLight3);
+
+        // Cubes
+        const cubes = [];
+        const gridSize = 15;
+        const spacing = 1.2;
+        const offset = (gridSize * spacing) / 2 - spacing / 2;
+
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+        let currentColorIndex = 0;
+        const colorPalettes = [
+            [0x00ffff, 0xff00ff], // Cyan & Magenta
+            [0xff0000, 0xffff00], // Red & Yellow
+            [0x00ff00, 0x0000ff], // Green & Blue
+            [0xffffff, 0x000000], // White & Black
+            [0xffa500, 0x800080]  // Orange & Purple
+        ];
+
+        function createCubes() {
+            // Clear existing
+            cubes.forEach(cube => scene.remove(cube));
+            cubes.length = 0;
+
+            const palette = colorPalettes[currentColorIndex];
+            const color1 = new THREE.Color(palette[0]);
+            const color2 = new THREE.Color(palette[1]);
+
+            for (let x = 0; x < gridSize; x++) {
+                for (let z = 0; z < gridSize; z++) {
+                    // Mix colors based on position
+                    const mixRatio = (x + z) / (gridSize * 2);
+                    const color = color1.clone().lerp(color2, mixRatio);
+
+                    const material = new THREE.MeshPhongMaterial({
+                        color: color,
+                        shininess: 100,
+                        specular: 0x111111
+                    });
+
+                    const cube = new THREE.Mesh(geometry, material);
+
+                    cube.position.x = x * spacing - offset;
+                    cube.position.z = z * spacing - offset;
+
+                    // Store initial position for wave calculation
+                    cube.userData = {
+                        x: x,
+                        z: z,
+                        initialY: 0
+                    };
+
+                    scene.add(cube);
+                    cubes.push(cube);
+                }
+            }
+        }
+
+        createCubes();
+
+        // Interaction
+        const group = new THREE.Group();
+        // Move all cubes into group for easier rotation
+        cubes.forEach(c => {
+            scene.remove(c);
+            group.add(c);
+        });
+        scene.add(group);
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX - window.innerWidth / 2) / 100;
+            mouseY = (event.clientY - window.innerHeight / 2) / 100;
+        });
+
+        document.addEventListener('click', () => {
+            currentColorIndex = (currentColorIndex + 1) % colorPalettes.length;
+
+            // Recreate cubes with new colors
+            // Note: Efficient way would be to just update materials, but recreation is fine for this scale
+            while (group.children.length > 0) {
+                group.remove(group.children[0]);
+            }
+            cubes.length = 0;
+
+            const palette = colorPalettes[currentColorIndex];
+            const color1 = new THREE.Color(palette[0]);
+            const color2 = new THREE.Color(palette[1]);
+
+            for (let x = 0; x < gridSize; x++) {
+                for (let z = 0; z < gridSize; z++) {
+                    const mixRatio = (x + z) / (gridSize * 2);
+                    const color = color1.clone().lerp(color2, mixRatio);
+
+                    const material = new THREE.MeshPhongMaterial({
+                        color: color,
+                        shininess: 100,
+                        specular: 0x111111
+                    });
+
+                    const cube = new THREE.Mesh(geometry, material);
+                    cube.position.x = x * spacing - offset;
+                    cube.position.z = z * spacing - offset;
+                    cube.userData = { x: x, z: z };
+
+                    group.add(cube);
+                    cubes.push(cube);
+                }
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Animation Loop
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = clock.getElapsedTime();
+
+            // Wave Animation
+            cubes.forEach(cube => {
+                const x = cube.userData.x;
+                const z = cube.userData.z;
+
+                // Calculate wave height
+                // Combine sine waves for more interesting motion
+                const y = Math.sin(time * 2 + x * 0.5 + z * 0.3) * 2;
+                const scaleY = Math.max(0.1, Math.sin(time * 2 + x * 0.5 + z * 0.3) + 1.5);
+
+                cube.position.y = y;
+                cube.scale.y = scaleY;
+            });
+
+            // Parallax / Rotation
+            targetRotationY = mouseX * 0.5;
+            targetRotationX = mouseY * 0.5;
+
+            group.rotation.y += 0.05 * (targetRotationY - group.rotation.y);
+            group.rotation.x += 0.05 * (targetRotationX - group.rotation.x);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>

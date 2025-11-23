@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neo-Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    gridTemplateColumns: {
+                        '16': 'repeat(16, minmax(0, 1fr))',
+                    },
+                    colors: {
+                        'neon-pink': '#ff00ff',
+                        'neon-blue': '#00ffff',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            font-family: 'Segoe UI', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            /* Prevent scrolling */
+        }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #444;
+            border-radius: 2px;
+        }
+
+        /* Grid Button Styles */
+        .seq-btn {
+            transition: all 0.1s;
+            border-radius: 2px;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            position: relative;
+        }
+
+        .seq-btn:hover {
+            border-color: #666;
+            background-color: #222;
+        }
+
+        /* Active States (Neon Gradient) */
+        /* Row 0 (Top) -> Row 7 (Bottom) */
+        .seq-btn.active[data-row="0"] {
+            background-color: #ff00ff;
+            box-shadow: 0 0 8px #ff00ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="1"] {
+            background-color: #e000ff;
+            box-shadow: 0 0 8px #e000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="2"] {
+            background-color: #c000ff;
+            box-shadow: 0 0 8px #c000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="3"] {
+            background-color: #a000ff;
+            box-shadow: 0 0 8px #a000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="4"] {
+            background-color: #8000ff;
+            box-shadow: 0 0 8px #8000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="5"] {
+            background-color: #6000ff;
+            box-shadow: 0 0 8px #6000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="6"] {
+            background-color: #4000ff;
+            box-shadow: 0 0 8px #4000ff;
+            border-color: #fff;
+        }
+
+        .seq-btn.active[data-row="7"] {
+            background-color: #00ffff;
+            box-shadow: 0 0 8px #00ffff;
+            border-color: #fff;
+        }
+
+        /* Playhead Highlight */
+        /* We use a pseudo-element or just brightness to highlight the column */
+        .col-highlight {
+            filter: brightness(1.5);
+            background-color: #333;
+        }
+
+        .seq-btn.active.col-highlight {
+            filter: brightness(1.2) contrast(1.2);
+            transform: scale(1.1);
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors bg-black/50 px-4 py-2 rounded-lg border border-gray-700 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <div
+        class="w-full max-w-5xl bg-neutral-900/80 rounded-xl border border-neutral-800 shadow-2xl backdrop-blur-sm p-6 flex flex-col gap-6">
+
+        <!-- Header & Controls -->
+        <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+            <h1
+                class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-cyan-500 tracking-wider">
+                NEO-SEQUENCER
+            </h1>
+
+            <div class="flex items-center gap-8 bg-black/30 p-4 rounded-full border border-white/5">
+                <!-- Play/Stop -->
+                <button id="play-btn"
+                    class="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+                    <svg id="icon-play" class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                    </svg>
+                    <svg id="icon-stop" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 6h12v12H6z" />
+                    </svg>
+                </button>
+
+                <!-- BPM -->
+                <div class="flex flex-col w-40 gap-1">
+                    <div class="flex justify-between text-xs text-gray-400 font-mono">
+                        <span>BPM</span>
+                        <span id="bpm-val" class="text-white">120</span>
+                    </div>
+                    <input type="range" id="bpm-slider" min="60" max="180" value="120">
+                </div>
+
+                <!-- Clear -->
+                <button onclick="clearGrid()"
+                    class="px-6 py-2 text-xs font-bold tracking-widest text-red-400 hover:text-red-300 border border-red-900/50 hover:border-red-500/50 rounded-full transition-all hover:bg-red-900/20">
+                    CLEAR
+                </button>
+            </div>
+        </div>
+
+        <!-- Grid Container -->
+        <div class="relative w-full aspect-[2/1] bg-black/50 rounded-lg p-2 border border-white/5">
+            <div id="sequencer-grid" class="grid grid-cols-16 grid-rows-8 gap-1 w-full h-full">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <div class="text-center text-xs text-gray-600 font-mono">
+            C Minor Pentatonic Scale • Web Audio API
+        </div>
+
+    </div>
+
+    <script>
+        // --- Audio Engine ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+        let isPlaying = false;
+
+        // Timing
+        let bpm = 120;
+        let lookahead = 25.0; // ms
+        let scheduleAheadTime = 0.1; // s
+        let nextNoteTime = 0.0;
+        let current16thNote = 0;
+        let timerID;
+
+        // C Minor Pentatonic Scale (High to Low)
+        // Row 0 (Top) -> Row 7 (Bottom)
+        const frequencies = [
+            523.25, // C5
+            466.16, // Bb4
+            392.00, // G4
+            349.23, // F4
+            311.13, // Eb4
+            261.63, // C4
+            233.08, // Bb3
+            196.00  // G3
+        ];
+
+        // Grid State: 8 rows x 16 cols
+        const rows = 8;
+        const cols = 16;
+        let grid = Array(rows).fill().map(() => Array(cols).fill(false));
+
+        // --- UI Initialization ---
+        const gridEl = document.getElementById('sequencer-grid');
+        const playBtn = document.getElementById('play-btn');
+        const iconPlay = document.getElementById('icon-play');
+        const iconStop = document.getElementById('icon-stop');
+        const bpmSlider = document.getElementById('bpm-slider');
+        const bpmVal = document.getElementById('bpm-val');
+
+        function initGrid() {
+            gridEl.innerHTML = '';
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const btn = document.createElement('div');
+                    btn.className = 'seq-btn w-full h-full';
+                    btn.dataset.row = r;
+                    btn.dataset.col = c;
+
+                    // Mouse interaction (Click and Drag support could be added, but simple click for now)
+                    btn.addEventListener('mousedown', () => toggleCell(r, c, btn));
+
+                    gridEl.appendChild(btn);
+                }
+            }
+        }
+
+        function toggleCell(r, c, btn) {
+            grid[r][c] = !grid[r][c];
+            if (grid[r][c]) {
+                btn.classList.add('active');
+                // Preview sound
+                playNote(frequencies[r], audioCtx ? audioCtx.currentTime : 0, 0.1);
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+
+        function clearGrid() {
+            grid = Array(rows).fill().map(() => Array(cols).fill(false));
+            document.querySelectorAll('.seq-btn').forEach(b => b.classList.remove('active'));
+        }
+
+        // --- Audio Logic ---
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playNote(freq, time, duration = 0.1) {
+            if (!audioCtx) initAudio();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            osc.type = 'sawtooth'; // Synth-like
+            osc.frequency.value = freq;
+
+            // Lowpass filter for warmer sound
+            filter.type = 'lowpass';
+            filter.frequency.value = 800; // Cutoff
+            filter.Q.value = 1;
+
+            // Envelope
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.3, time + 0.01); // Attack
+            gain.gain.exponentialRampToValueAtTime(0.001, time + duration); // Decay
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(time);
+            osc.stop(time + duration);
+        }
+
+        function nextNote() {
+            const secondsPerBeat = 60.0 / bpm;
+            const secondsPer16th = secondsPerBeat / 4; // 16th notes
+            nextNoteTime += secondsPer16th;
+            current16thNote++;
+            if (current16thNote === cols) {
+                current16thNote = 0;
+            }
+        }
+
+        function scheduleNote(beatNumber, time) {
+            // Play active notes in this column
+            for (let r = 0; r < rows; r++) {
+                if (grid[r][beatNumber]) {
+                    playNote(frequencies[r], time, 0.2);
+                }
+            }
+        }
+
+        function scheduler() {
+            while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+                scheduleNote(current16thNote, nextNoteTime);
+                nextNote();
+            }
+            timerID = setTimeout(scheduler, lookahead);
+        }
+
+        // --- Visual Loop (Synced to Audio) ---
+        let lastDrawnNote = -1;
+
+        function draw() {
+            if (!isPlaying) return;
+
+            // Calculate current 16th note based on time
+            // We need to know when the loop started or track it via audio time
+            // But since we have `current16thNote` updating in the scheduler (which is ahead),
+            // we can't use it directly for visuals.
+
+            // Simple approach: Use the scheduler's current note but delayed?
+            // Or better: Calculate based on currentTime vs nextNoteTime.
+
+            // Let's try to just highlight the note that is *currently* playing.
+            // Since `nextNoteTime` is the time of the *next* note to be scheduled (or the one just scheduled),
+            // we can estimate.
+
+            // Actually, for this simple app, let's just use the `current16thNote` from scheduler
+            // but we know it's slightly ahead.
+            // Let's use a separate visual index that updates when audioCtx.currentTime passes the scheduled time.
+
+            // However, to keep it simple and robust:
+            // We can just highlight the column corresponding to (current16thNote - 1) roughly?
+            // No, that's hacky.
+
+            // Let's use `setTimeout` inside `scheduleNote` to trigger visual update exactly when `time` is reached.
+            // This is the standard Web Audio way for visuals.
+
+            requestAnimationFrame(draw);
+        }
+
+        // We will override scheduleNote to include visual scheduling
+        const originalScheduleNote = scheduleNote;
+        scheduleNote = function (beatNumber, time) {
+            // Call original audio scheduling
+            for (let r = 0; r < rows; r++) {
+                if (grid[r][beatNumber]) {
+                    playNote(frequencies[r], time, 0.2);
+                }
+            }
+
+            // Schedule visual update
+            // Calculate delay until this note should play
+            const delay = Math.max(0, (time - audioCtx.currentTime) * 1000);
+
+            setTimeout(() => {
+                updateVisuals(beatNumber);
+            }, delay);
+        };
+
+        function updateVisuals(colIndex) {
+            // Clear all highlights
+            document.querySelectorAll('.col-highlight').forEach(el => el.classList.remove('col-highlight'));
+
+            // Highlight current column
+            for (let r = 0; r < rows; r++) {
+                const btn = document.querySelector(`.seq-btn[data-row="${r}"][data-col="${colIndex}"]`);
+                if (btn) btn.classList.add('col-highlight');
+            }
+        }
+
+        // --- Controls ---
+
+        playBtn.addEventListener('click', () => {
+            initAudio();
+            isPlaying = !isPlaying;
+
+            if (isPlaying) {
+                current16thNote = 0;
+                nextNoteTime = audioCtx.currentTime + 0.1; // Start slightly in future
+                scheduler();
+                iconPlay.classList.add('hidden');
+                iconStop.classList.remove('hidden');
+                draw(); // Start visual loop if needed, though we use setTimeout now
+            } else {
+                clearTimeout(timerID);
+                iconPlay.classList.remove('hidden');
+                iconStop.classList.add('hidden');
+                // Clear highlights
+                document.querySelectorAll('.col-highlight').forEach(el => el.classList.remove('col-highlight'));
+            }
+        });
+
+        bpmSlider.addEventListener('input', (e) => {
+            bpm = e.target.value;
+            bpmVal.innerText = bpm;
+        });
+
+        // Initialize
+        initGrid();
+
+    </script>
+</body>
+
+</html>

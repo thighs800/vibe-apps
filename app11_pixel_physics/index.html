@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Physics</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            /* Prevent scrolling on mobile */
+        }
+
+        canvas {
+            image-rendering: pixelated;
+            /* Essential for the retro look */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .btn-tool {
+            transition: all 0.1s;
+        }
+
+        .btn-tool.active {
+            transform: scale(1.1);
+            border-color: white;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+
+<body class="flex flex-col h-screen">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors bg-black/50 px-4 py-2 rounded-lg border border-gray-700 font-medium">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Main Canvas Area -->
+    <div class="flex-1 flex items-center justify-center bg-neutral-900 p-4">
+        <canvas id="simCanvas"></canvas>
+    </div>
+
+    <!-- Controls -->
+    <div class="bg-neutral-800 p-4 border-t border-neutral-700">
+        <div class="max-w-4xl mx-auto flex flex-wrap justify-center gap-4">
+            <button class="btn-tool active bg-yellow-500 text-black font-bold py-2 px-6 rounded"
+                onclick="setTool(1, this)">Sand</button>
+            <button class="btn-tool bg-blue-500 text-white font-bold py-2 px-6 rounded"
+                onclick="setTool(2, this)">Water</button>
+            <button class="btn-tool bg-green-500 text-black font-bold py-2 px-6 rounded"
+                onclick="setTool(3, this)">Acid</button>
+            <button class="btn-tool bg-gray-500 text-white font-bold py-2 px-6 rounded"
+                onclick="setTool(4, this)">Wall</button>
+            <button class="btn-tool bg-red-500 text-white font-bold py-2 px-6 rounded"
+                onclick="setTool(0, this)">Eraser</button>
+            <div class="w-px bg-neutral-600 mx-2"></div>
+            <button class="bg-neutral-700 hover:bg-neutral-600 text-white font-bold py-2 px-6 rounded transition-colors"
+                onclick="clearGrid()">Clear All</button>
+        </div>
+        <div class="text-center text-neutral-500 text-sm mt-2">
+            Click & Drag to Draw • Physics runs at 60FPS
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Simulation Config
+        const width = 150;
+        const height = 150;
+        const scale = 4; // Visual scale factor
+
+        // State
+        // 0: Empty, 1: Sand, 2: Water, 3: Acid, 4: Wall
+        let grid = new Uint8Array(width * height);
+        let nextGrid = new Uint8Array(width * height); // Double buffering for consistent updates? Actually, inplace is often better for sand to avoid teleporting, but let's try inplace with direction tricks or just simple inplace.
+        // Simple inplace bottom-up is standard for falling sand.
+
+        let currentTool = 1; // Default Sand
+        let isDrawing = false;
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // Colors
+        const colors = [
+            [26, 26, 26],   // 0: Empty (Background)
+            [234, 179, 8],  // 1: Sand (Yellow-500)
+            [59, 130, 246], // 2: Water (Blue-500)
+            [34, 197, 94],  // 3: Acid (Green-500)
+            [107, 114, 128] // 4: Wall (Gray-500)
+        ];
+
+        // Init Canvas
+        function init() {
+            // Set canvas size based on simulation size * scale
+            // But we want it to fit screen, so let's do dynamic scaling or fixed sim size?
+            // Requirement says "lightweight", so fixed small grid scaled up is best.
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = `${width * scale}px`;
+            canvas.style.height = `${height * scale}px`;
+
+            // Disable smoothing for pixel look
+            ctx.imageSmoothingEnabled = false;
+
+            loop();
+        }
+
+        function setTool(id, btn) {
+            currentTool = id;
+            document.querySelectorAll('.btn-tool').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        }
+
+        function clearGrid() {
+            grid.fill(0);
+        }
+
+        function getIndex(x, y) {
+            return y * width + x;
+        }
+
+        function draw() {
+            // Create ImageData
+            const imgData = ctx.createImageData(width, height);
+            const data = imgData.data;
+
+            for (let i = 0; i < grid.length; i++) {
+                const type = grid[i];
+                const color = colors[type] || colors[0];
+
+                // Pixel index
+                const p = i * 4;
+                data[p] = color[0];
+                data[p + 1] = color[1];
+                data[p + 2] = color[2];
+                data[p + 3] = 255;
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        function update() {
+            // Input handling
+            if (isDrawing) {
+                // Map mouse/touch to grid coordinates
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+
+                const gx = Math.floor((mouseX - rect.left) * scaleX);
+                const gy = Math.floor((mouseY - rect.top) * scaleY);
+
+                // Brush size
+                const radius = 2;
+                for (let y = -radius; y <= radius; y++) {
+                    for (let x = -radius; x <= radius; x++) {
+                        if (x * x + y * y <= radius * radius) {
+                            const tx = gx + x;
+                            const ty = gy + y;
+                            if (tx >= 0 && tx < width && ty >= 0 && ty < height) {
+                                // Don't overwrite walls unless eraser
+                                const idx = getIndex(tx, ty);
+                                if (currentTool === 0 || grid[idx] !== 4) {
+                                    // Also maybe don't overwrite existing matter with same matter
+                                    if (Math.random() > 0.1) { // Add some noise/gaps for natural look
+                                        grid[idx] = currentTool;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Simulation
+            // Iterate from bottom to top, random horizontal direction
+            for (let y = height - 1; y >= 0; y--) {
+                // Randomize x direction to prevent bias
+                const startX = Math.random() > 0.5 ? 0 : width - 1;
+                const step = startX === 0 ? 1 : -1;
+
+                for (let i = 0; i < width; i++) {
+                    const x = startX + i * step;
+                    const idx = getIndex(x, y);
+                    const type = grid[idx];
+
+                    if (type === 0 || type === 4) continue; // Empty or Wall
+
+                    if (type === 1) { // Sand
+                        updateSand(x, y, idx);
+                    } else if (type === 2) { // Water
+                        updateWater(x, y, idx);
+                    } else if (type === 3) { // Acid
+                        updateAcid(x, y, idx);
+                    }
+                }
+            }
+        }
+
+        function updateSand(x, y, idx) {
+            if (y >= height - 1) return; // Bottom
+
+            const below = getIndex(x, y + 1);
+            const belowLeft = getIndex(x - 1, y + 1);
+            const belowRight = getIndex(x + 1, y + 1);
+
+            // 1. Try down
+            if (grid[below] === 0 || grid[below] === 2 || grid[below] === 3) { // Can fall through water/acid
+                // Swap
+                const targetType = grid[below];
+                grid[below] = 1;
+                grid[idx] = targetType;
+            }
+            // 2. Try down-left
+            else if (x > 0 && (grid[belowLeft] === 0 || grid[belowLeft] === 2 || grid[belowLeft] === 3)) {
+                const targetType = grid[belowLeft];
+                grid[belowLeft] = 1;
+                grid[idx] = targetType;
+            }
+            // 3. Try down-right
+            else if (x < width - 1 && (grid[belowRight] === 0 || grid[belowRight] === 2 || grid[belowRight] === 3)) {
+                const targetType = grid[belowRight];
+                grid[belowRight] = 1;
+                grid[idx] = targetType;
+            }
+        }
+
+        function updateWater(x, y, idx) {
+            if (y >= height - 1) return;
+
+            const below = getIndex(x, y + 1);
+            const left = getIndex(x - 1, y);
+            const right = getIndex(x + 1, y);
+
+            // 1. Try down
+            if (grid[below] === 0) {
+                grid[below] = 2;
+                grid[idx] = 0;
+            }
+            // 2. Try side (randomly)
+            else {
+                const dir = Math.random() > 0.5 ? -1 : 1;
+                const side1 = getIndex(x + dir, y);
+                const side2 = getIndex(x - dir, y);
+
+                if (x + dir >= 0 && x + dir < width && grid[side1] === 0) {
+                    grid[side1] = 2;
+                    grid[idx] = 0;
+                } else if (x - dir >= 0 && x - dir < width && grid[side2] === 0) {
+                    grid[side2] = 2;
+                    grid[idx] = 0;
+                }
+            }
+        }
+
+        function updateAcid(x, y, idx) {
+            // Acid moves like water but eats things
+            // Check neighbors for non-acid/non-empty/non-wall(maybe eats wall?)
+            // Let's say it eats everything except glass (not implemented) so eats walls too.
+
+            // Simple logic: if touching something, delete both.
+            // Check down, left, right, up
+            const neighbors = [
+                { x: x, y: y + 1 },
+                { x: x - 1, y: y },
+                { x: x + 1, y: y },
+                { x: x, y: y - 1 }
+            ];
+
+            let dissolved = false;
+            for (let n of neighbors) {
+                if (n.x >= 0 && n.x < width && n.y >= 0 && n.y < height) {
+                    const nIdx = getIndex(n.x, n.y);
+                    const nType = grid[nIdx];
+                    if (nType !== 0 && nType !== 3) { // Not empty, not acid
+                        // Dissolve!
+                        if (Math.random() < 0.1) { // Rate of reaction
+                            grid[nIdx] = 0;
+                            grid[idx] = 0;
+                            dissolved = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (dissolved) return;
+
+            // If didn't dissolve, move like water
+            if (y >= height - 1) return;
+
+            const below = getIndex(x, y + 1);
+
+            if (grid[below] === 0) {
+                grid[below] = 3;
+                grid[idx] = 0;
+            } else {
+                const dir = Math.random() > 0.5 ? -1 : 1;
+                const side1 = getIndex(x + dir, y);
+                const side2 = getIndex(x - dir, y);
+
+                if (x + dir >= 0 && x + dir < width && grid[side1] === 0) {
+                    grid[side1] = 3;
+                    grid[idx] = 0;
+                } else if (x - dir >= 0 && x - dir < width && grid[side2] === 0) {
+                    grid[side2] = 3;
+                    grid[idx] = 0;
+                }
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Input Listeners
+        function startPaint(e) {
+            isDrawing = true;
+            updateMouse(e);
+        }
+        function endPaint() {
+            isDrawing = false;
+        }
+        function movePaint(e) {
+            updateMouse(e);
+        }
+        function updateMouse(e) {
+            if (e.touches) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            } else {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            }
+        }
+
+        window.addEventListener('mousedown', startPaint);
+        window.addEventListener('mouseup', endPaint);
+        window.addEventListener('mousemove', movePaint);
+
+        window.addEventListener('touchstart', (e) => { startPaint(e); e.preventDefault(); }, { passive: false });
+        window.addEventListener('touchend', endPaint);
+        window.addEventListener('touchmove', (e) => { movePaint(e); e.preventDefault(); }, { passive: false });
+
+        init();
+
+    </script>
+</body>
+
+</html>

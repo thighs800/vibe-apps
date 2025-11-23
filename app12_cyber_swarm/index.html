@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Swarm</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #050505;
+            margin: 0;
+            overflow: hidden;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-200 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls Overlay -->
+    <div class="absolute top-4 right-4 z-50 text-right pointer-events-none select-none">
+        <h1 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500">CYBER
+            SWARM</h1>
+        <p class="text-xs text-gray-500">Move mouse to attract • Click to repel</p>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Boid Configuration
+        const BOID_COUNT = 250;
+        const PERCEPTION_RADIUS = 50;
+        const MAX_FORCE = 0.05;
+        const MAX_SPEED = 3;
+
+        // Interaction
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let isMouseDown = false;
+
+        window.addEventListener('mousemove', e => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        window.addEventListener('mousedown', () => isMouseDown = true);
+        window.addEventListener('mouseup', () => isMouseDown = false);
+        window.addEventListener('touchstart', (e) => {
+            isMouseDown = true;
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        window.addEventListener('touchend', () => isMouseDown = false);
+
+        class Boid {
+            constructor() {
+                this.position = {
+                    x: Math.random() * width,
+                    y: Math.random() * height
+                };
+                this.velocity = {
+                    x: (Math.random() - 0.5) * MAX_SPEED * 2,
+                    y: (Math.random() - 0.5) * MAX_SPEED * 2
+                };
+                this.acceleration = { x: 0, y: 0 };
+                // Random color between cyan and magenta
+                const hue = Math.random() > 0.5 ? 180 : 300; // Cyan or Magenta
+                this.color = `hsl(${hue}, 100%, 50%)`;
+            }
+
+            edges() {
+                if (this.position.x > width) this.position.x = 0;
+                else if (this.position.x < 0) this.position.x = width;
+                if (this.position.y > height) this.position.y = 0;
+                else if (this.position.y < 0) this.position.y = height;
+            }
+
+            align(boids) {
+                let steering = { x: 0, y: 0 };
+                let total = 0;
+                for (let other of boids) {
+                    let d = this.dist(this.position, other.position);
+                    if (other !== this && d < PERCEPTION_RADIUS) {
+                        steering.x += other.velocity.x;
+                        steering.y += other.velocity.y;
+                        total++;
+                    }
+                }
+                if (total > 0) {
+                    steering.x /= total;
+                    steering.y /= total;
+                    steering = this.setMag(steering, MAX_SPEED);
+                    steering.x -= this.velocity.x;
+                    steering.y -= this.velocity.y;
+                    steering = this.limit(steering, MAX_FORCE);
+                }
+                return steering;
+            }
+
+            cohesion(boids) {
+                let steering = { x: 0, y: 0 };
+                let total = 0;
+                for (let other of boids) {
+                    let d = this.dist(this.position, other.position);
+                    if (other !== this && d < PERCEPTION_RADIUS) {
+                        steering.x += other.position.x;
+                        steering.y += other.position.y;
+                        total++;
+                    }
+                }
+                if (total > 0) {
+                    steering.x /= total;
+                    steering.y /= total;
+                    steering.x -= this.position.x;
+                    steering.y -= this.position.y;
+                    steering = this.setMag(steering, MAX_SPEED);
+                    steering.x -= this.velocity.x;
+                    steering.y -= this.velocity.y;
+                    steering = this.limit(steering, MAX_FORCE);
+                }
+                return steering;
+            }
+
+            separation(boids) {
+                let steering = { x: 0, y: 0 };
+                let total = 0;
+                for (let other of boids) {
+                    let d = this.dist(this.position, other.position);
+                    if (other !== this && d < PERCEPTION_RADIUS / 1.5) { // Smaller radius for separation
+                        let diff = {
+                            x: this.position.x - other.position.x,
+                            y: this.position.y - other.position.y
+                        };
+                        diff.x /= d * d; // Weight by distance
+                        diff.y /= d * d;
+                        steering.x += diff.x;
+                        steering.y += diff.y;
+                        total++;
+                    }
+                }
+                if (total > 0) {
+                    steering.x /= total;
+                    steering.y /= total;
+                    steering = this.setMag(steering, MAX_SPEED);
+                    steering.x -= this.velocity.x;
+                    steering.y -= this.velocity.y;
+                    steering = this.limit(steering, MAX_FORCE * 1.5); // Stronger force for separation
+                }
+                return steering;
+            }
+
+            interact() {
+                // Mouse interaction
+                let mousePos = { x: mouseX, y: mouseY };
+                let d = this.dist(this.position, mousePos);
+                let steering = { x: 0, y: 0 };
+
+                if (isMouseDown) {
+                    // Repel
+                    if (d < 200) {
+                        let diff = {
+                            x: this.position.x - mousePos.x,
+                            y: this.position.y - mousePos.y
+                        };
+                        diff = this.setMag(diff, MAX_SPEED * 2);
+                        steering.x = diff.x - this.velocity.x;
+                        steering.y = diff.y - this.velocity.y;
+                        steering = this.limit(steering, MAX_FORCE * 5);
+                    }
+                } else {
+                    // Attract
+                    if (d < 400) {
+                        let diff = {
+                            x: mousePos.x - this.position.x,
+                            y: mousePos.y - this.position.y
+                        };
+                        diff = this.setMag(diff, MAX_SPEED);
+                        steering.x = diff.x - this.velocity.x;
+                        steering.y = diff.y - this.velocity.y;
+                        steering = this.limit(steering, MAX_FORCE);
+                    }
+                }
+                return steering;
+            }
+
+            flock(boids) {
+                let alignment = this.align(boids);
+                let cohesion = this.cohesion(boids);
+                let separation = this.separation(boids);
+                let interaction = this.interact();
+
+                this.acceleration.x += alignment.x;
+                this.acceleration.y += alignment.y;
+                this.acceleration.x += cohesion.x;
+                this.acceleration.y += cohesion.y;
+                this.acceleration.x += separation.x;
+                this.acceleration.y += separation.y;
+                this.acceleration.x += interaction.x;
+                this.acceleration.y += interaction.y;
+            }
+
+            update() {
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+                this.velocity.x += this.acceleration.x;
+                this.velocity.y += this.acceleration.y;
+                this.velocity = this.limit(this.velocity, MAX_SPEED);
+                this.acceleration.x = 0;
+                this.acceleration.y = 0;
+                this.edges();
+            }
+
+            draw() {
+                // Draw triangle rotated in direction of velocity
+                const angle = Math.atan2(this.velocity.y, this.velocity.x);
+                const size = 6;
+
+                ctx.save();
+                ctx.translate(this.position.x, this.position.y);
+                ctx.rotate(angle);
+
+                ctx.beginPath();
+                ctx.moveTo(size, 0);
+                ctx.lineTo(-size, -size / 2);
+                ctx.lineTo(-size, size / 2);
+                ctx.closePath();
+
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            // Helpers
+            dist(v1, v2) {
+                return Math.sqrt((v1.x - v2.x) ** 2 + (v1.y - v2.y) ** 2);
+            }
+
+            setMag(v, mag) {
+                let m = Math.sqrt(v.x * v.x + v.y * v.y);
+                if (m === 0) return { x: 0, y: 0 };
+                return { x: (v.x / m) * mag, y: (v.y / m) * mag };
+            }
+
+            limit(v, max) {
+                let m = Math.sqrt(v.x * v.x + v.y * v.y);
+                if (m > max) {
+                    return { x: (v.x / m) * max, y: (v.y / m) * max };
+                }
+                return v;
+            }
+        }
+
+        const flock = [];
+        for (let i = 0; i < BOID_COUNT; i++) {
+            flock.push(new Boid());
+        }
+
+        function animate() {
+            // Trail effect
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Optimization: Spatial partitioning could go here, but for 250 boids O(N^2) is fine (~62k checks)
+            // We can optimize slightly by not checking self inside the loop (already done)
+
+            // Snapshot of flock for calculations to avoid order bias? 
+            // Standard boids usually updates in place or uses snapshot. In place is chaotic but fine.
+
+            for (let boid of flock) {
+                boid.flock(flock);
+                boid.update();
+                boid.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+    </script>
+</body>
+
+</html>

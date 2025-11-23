@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Painter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: white;
+            cursor: crosshair;
+            transition: filter 0.3s ease;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .inverted {
+            filter: invert(1);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors bg-white/80 px-4 py-2 rounded-lg shadow-sm hover:shadow-md border border-slate-200 font-medium">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls -->
+    <div class="absolute top-4 right-4 z-50 flex gap-2">
+        <button onclick="clearCanvas()"
+            class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-bold py-2 px-4 rounded shadow hover:shadow-md transition-all">
+            Clear Canvas
+        </button>
+        <button onclick="saveImage()"
+            class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow hover:shadow-md transition-all">
+            Save Image
+        </button>
+    </div>
+
+    <!-- Instruction -->
+    <div
+        class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-slate-400 pointer-events-none select-none text-sm">
+        Drag to paint chaos • Space to invert colors
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Resize canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // State
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let hue = 0;
+        const particles = [];
+
+        // Particle Class
+        class Particle {
+            constructor(x, y, hue, speedFactor) {
+                this.x = x;
+                this.y = y;
+                this.hue = hue;
+
+                // Random velocity based on speed of mouse
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * (speedFactor * 0.5 + 2);
+
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+
+                this.size = Math.random() * 5 + 2;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.01;
+                this.gravity = 0.1;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += this.gravity; // Gravity
+                this.vx *= 0.95; // Friction
+                this.vy *= 0.95;
+
+                this.life -= this.decay;
+                this.size *= 0.95;
+            }
+
+            draw(context) {
+                context.fillStyle = `hsla(${this.hue}, 100%, 50%, ${this.life})`;
+                context.beginPath();
+                context.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                context.fill();
+            }
+        }
+
+        // Drawing Logic
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.clientX, e.clientY];
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+
+            const x = e.clientX;
+            const y = e.clientY;
+
+            // Calculate speed
+            const dx = x - lastX;
+            const dy = y - lastY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Chaos factor: faster movement = more particles, smaller size
+            // Slower movement = fewer particles, bigger blobs (simulated by logic below)
+
+            const particleCount = Math.min(distance, 20); // Cap particles
+
+            for (let i = 0; i < particleCount; i++) {
+                // Spawn particles along the path
+                const t = Math.random();
+                const px = lastX + dx * t + (Math.random() - 0.5) * 10;
+                const py = lastY + dy * t + (Math.random() - 0.5) * 10;
+
+                particles.push(new Particle(px, py, hue, distance));
+            }
+
+            // Connect points with a line for base stroke (optional, maybe skip for pure chaos?)
+            // Let's add a faint line to keep some structure
+            ctx.beginPath();
+            ctx.strokeStyle = `hsla(${hue}, 100%, 50%, 0.1)`;
+            ctx.lineWidth = Math.max(1, 20 - distance * 0.5);
+            ctx.lineCap = 'round';
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            [lastX, lastY] = [x, y];
+            hue = (hue + 1) % 360;
+        }
+
+        // Animation Loop
+        function animate() {
+            // Fade effect (trail)
+            // ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            // ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Actually, let's not clear, just accumulate chaos.
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw(ctx);
+
+                if (p.life <= 0 || p.size <= 0.1) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Event Listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        });
+        canvas.addEventListener('touchend', () => {
+            const mouseEvent = new MouseEvent('mouseup', {});
+            canvas.dispatchEvent(mouseEvent);
+        });
+
+        // Controls
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.length = 0;
+        }
+
+        function saveImage() {
+            const link = document.createElement('a');
+            link.download = 'chaos-art.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        // Spacebar filter
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                document.body.classList.toggle('inverted');
+            }
+        });
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Cam</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #ascii-container {
+            font-size: 12px;
+            line-height: 0.7;
+            /* Adjust for character aspect ratio */
+            white-space: pre;
+            text-align: center;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: default;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-green-500 hover:text-green-300 transition-colors bg-black/80 px-4 py-2 rounded border border-green-800 font-bold backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls -->
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-50">
+        <button id="snapshot-btn"
+            class="bg-white text-black font-bold py-3 px-8 rounded-full hover:bg-gray-200 transition-transform active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)] flex items-center gap-2">
+            <span>📸</span> Snapshot
+        </button>
+    </div>
+
+    <!-- Hidden Video & Canvas -->
+    <video id="video" class="hidden" autoplay playsinline></video>
+    <canvas id="canvas" class="hidden"></canvas>
+
+    <!-- ASCII Output -->
+    <div id="ascii-container">Initializing Camera...</div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const asciiContainer = document.getElementById('ascii-container');
+        const snapshotBtn = document.getElementById('snapshot-btn');
+
+        // Charset: Dark to Light
+        // A good density ramp
+        const chars = " .:-=+*#%@";
+
+        // Configuration
+        // Lower resolution for performance (DOM updates are heavy)
+        const width = 80;
+        let height = 0;
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+
+                    // Calculate height to maintain aspect ratio
+                    // Font aspect ratio correction:
+                    // Monospace chars are usually ~0.6 wide as they are tall.
+                    // But we set line-height to 0.7, so they are closer to square but still rectangular.
+                    // We need to squash the height in characters to match the visual aspect ratio.
+                    const aspectRatio = video.videoHeight / video.videoWidth;
+                    // Factor 0.55 is a magic number that usually makes ASCII look right
+                    height = Math.floor(width * aspectRatio * 0.55);
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    requestAnimationFrame(processFrame);
+                };
+            } catch (err) {
+                console.error("Camera Error:", err);
+                asciiContainer.innerHTML = `<div class="text-red-500 text-xl">Error: Camera access denied.<br>Please allow camera access to use this app.</div>`;
+            }
+        }
+
+        let lastTime = 0;
+        const fps = 30; // Limit FPS to save CPU
+        const interval = 1000 / fps;
+
+        function processFrame(time) {
+            if (video.paused || video.ended) return;
+            requestAnimationFrame(processFrame);
+
+            const delta = time - lastTime;
+            if (delta < interval) return;
+            lastTime = time - (delta % interval);
+
+            // Draw video to small canvas
+            // Mirror the image for natural feel
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -width, 0, width, height);
+            ctx.restore();
+
+            // Get pixel data
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            let html = "";
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const offset = (y * width + x) * 4;
+                    const r = data[offset];
+                    const g = data[offset + 1];
+                    const b = data[offset + 2];
+
+                    // Brightness
+                    const brightness = (r + g + b) / 3;
+                    const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
+                    const char = chars[charIndex];
+
+                    // Optimization: Only use span if color is bright enough?
+                    // Or just always use it.
+                    // To reduce string size, we could omit color for very dark pixels?
+                    if (brightness < 20) {
+                        html += " ";
+                    } else {
+                        html += `<span style="color:rgb(${r},${g},${b})">${char}</span>`;
+                    }
+                }
+                html += "<br>";
+            }
+
+            asciiContainer.innerHTML = html;
+        }
+
+        initCamera();
+
+        // Snapshot
+        snapshotBtn.addEventListener('click', () => {
+            // Create a temporary canvas to scale up the pixel art
+            const saveCanvas = document.createElement('canvas');
+            const scale = 8;
+            saveCanvas.width = width * scale;
+            saveCanvas.height = height * scale;
+            const saveCtx = saveCanvas.getContext('2d');
+
+            // Disable smoothing for pixel art look
+            saveCtx.imageSmoothingEnabled = false;
+
+            // Draw the current small canvas onto the big one
+            saveCtx.drawImage(canvas, 0, 0, saveCanvas.width, saveCanvas.height);
+
+            const link = document.createElement('a');
+            link.download = `ascii-cam-${Date.now()}.png`;
+            link.href = saveCanvas.toDataURL('image/png');
+            link.click();
+
+            // Flash effect
+            const originalFilter = document.body.style.filter;
+            document.body.style.filter = 'invert(1)';
+            setTimeout(() => document.body.style.filter = originalFilter, 100);
+        });
+
+    </script>
+</body>
+
+</html>

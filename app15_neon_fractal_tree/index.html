@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Fractal Tree</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-pink-500 hover:text-pink-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-pink-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls Overlay -->
+    <div
+        class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-50 text-center pointer-events-none select-none w-full">
+        <h1 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500 mb-2">
+            NEON FRACTAL</h1>
+        <p class="text-xs text-gray-500">Mouse X: Angle • Mouse Y: Length</p>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Interaction State
+        let mouseX = window.innerWidth / 2;
+        let mouseY = window.innerHeight / 2;
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+
+        // Animation State
+        let time = 0;
+
+        function drawTree(startX, startY, len, angle, branchWidth, depth) {
+            ctx.beginPath();
+            ctx.save();
+            ctx.strokeStyle = `hsl(${depth * 20 + time * 50}, 100%, 60%)`;
+            ctx.lineWidth = branchWidth;
+            ctx.translate(startX, startY);
+            ctx.rotate(angle * Math.PI / 180);
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -len);
+            ctx.stroke();
+
+            if (len < 10) {
+                ctx.restore();
+                return;
+            }
+
+            // Interactive parameters
+            // Map mouseX to angle (0 to 180 degrees spread)
+            // Center (width/2) should be balanced.
+            // Let's say spread angle is controlled by X.
+            const maxSpread = 120;
+            const spread = (mouseX / width) * maxSpread;
+
+            // Map mouseY to length reduction (0.6 to 0.85)
+            const reduction = 0.5 + (mouseY / height) * 0.3;
+
+            // Wind effect
+            const wind = Math.sin(time * 2 + depth) * 2;
+
+            ctx.translate(0, -len);
+
+            drawTree(0, 0, len * reduction, spread + wind, branchWidth * 0.7, depth + 1);
+            drawTree(0, 0, len * reduction, -spread + wind, branchWidth * 0.7, depth + 1);
+
+            // Optional: Middle branch for fuller tree?
+            // drawTree(0, 0, len * reduction * 0.8, wind, branchWidth * 0.7, depth + 1);
+
+            ctx.restore();
+        }
+
+        function animate() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            time += 0.01;
+
+            // Start from bottom center
+            // Initial length based on height
+            const startLen = height * 0.25;
+
+            drawTree(width / 2, height, startLen, 0, 10, 0);
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+    </script>
+</body>
+
+</html>

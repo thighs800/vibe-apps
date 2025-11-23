@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error Solitaire</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #008080;
+            /* Windows 95 Teal */
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        /* Retro Window Styles */
+        .win95-window {
+            position: absolute;
+            background-color: #c0c0c0;
+            border-top: 2px solid #dfdfdf;
+            border-left: 2px solid #dfdfdf;
+            border-right: 2px solid #000000;
+            border-bottom: 2px solid #000000;
+            box-shadow: 1px 1px 0px #000000;
+            width: 300px;
+            padding: 2px;
+            display: flex;
+            flex-direction: column;
+            cursor: default;
+        }
+
+        .win95-title-bar {
+            background: linear-gradient(90deg, #000080, #1084d0);
+            color: white;
+            padding: 2px 4px;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: grab;
+        }
+
+        .win95-title-bar:active {
+            cursor: grabbing;
+        }
+
+        .win95-close {
+            background-color: #c0c0c0;
+            border-top: 1px solid #dfdfdf;
+            border-left: 1px solid #dfdfdf;
+            border-right: 1px solid #000000;
+            border-bottom: 1px solid #000000;
+            width: 16px;
+            height: 14px;
+            font-size: 10px;
+            line-height: 12px;
+            text-align: center;
+            color: black;
+            font-family: sans-serif;
+            font-weight: bold;
+        }
+
+        .win95-close:active {
+            border-top: 1px solid #000000;
+            border-left: 1px solid #000000;
+            border-right: 1px solid #dfdfdf;
+            border-bottom: 1px solid #dfdfdf;
+            padding-top: 1px;
+            padding-left: 1px;
+        }
+
+        .win95-content {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .win95-btn {
+            background-color: #c0c0c0;
+            border-top: 1px solid #dfdfdf;
+            border-left: 1px solid #dfdfdf;
+            border-right: 1px solid #000000;
+            border-bottom: 1px solid #000000;
+            padding: 4px 24px;
+            font-size: 14px;
+            color: black;
+            outline: 1px solid black;
+            /* Extra outline for that crisp look */
+            outline-offset: -1px;
+            /* Inside */
+        }
+
+        .win95-btn:active {
+            border-top: 1px solid #000000;
+            border-left: 1px solid #000000;
+            border-right: 1px solid #dfdfdf;
+            border-bottom: 1px solid #dfdfdf;
+            transform: translate(1px, 1px);
+        }
+
+        #canvas-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        #window-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            /* Let clicks pass through to background if not on window */
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-white hover:text-yellow-300 transition-colors bg-blue-900/80 px-4 py-2 rounded shadow border border-blue-700 font-medium font-mono">
+            <span>&lt;-</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls -->
+    <div class="absolute top-4 right-4 z-50 flex gap-2">
+        <button onclick="cascade()" class="win95-btn interactive font-bold">
+            Cascade
+        </button>
+        <button onclick="blueScreen()" class="win95-btn interactive font-bold text-blue-800">
+            Blue Screen
+        </button>
+    </div>
+
+    <!-- Background Click Area -->
+    <div id="click-area" class="absolute inset-0 z-0" onclick="spawnWindowAtClick(event)"></div>
+
+    <!-- Canvas for Trails -->
+    <canvas id="canvas-layer"></canvas>
+
+    <!-- Container for Windows -->
+    <div id="window-layer"></div>
+
+    <script>
+        const canvas = document.getElementById('canvas-layer');
+        const ctx = canvas.getContext('2d');
+        const windowLayer = document.getElementById('window-layer');
+        let audioCtx;
+
+        // Resize canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Audio Synthesis (Sawtooth Error Sound)
+        function playErrorSound() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // Window Management
+        let zIndexCounter = 100;
+        let activeDrag = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        function spawnWindow(x, y) {
+            playErrorSound();
+
+            const win = document.createElement('div');
+            win.className = 'win95-window interactive';
+            win.style.left = `${x}px`;
+            win.style.top = `${y}px`;
+            win.style.zIndex = zIndexCounter++;
+
+            // Randomize error message slightly
+            const errors = [
+                "Critical Error",
+                "Illegal Operation",
+                "Task Failed",
+                "Memory Leak",
+                "System Halted"
+            ];
+            const title = errors[Math.floor(Math.random() * errors.length)];
+
+            win.innerHTML = `
+                <div class="win95-title-bar" onmousedown="startDrag(event, this.parentElement)">
+                    <span>${title}</span>
+                    <button class="win95-close" onclick="this.closest('.win95-window').remove()">X</button>
+                </div>
+                <div class="win95-content">
+                    <div class="flex items-center gap-4 w-full">
+                        <div class="text-4xl">⚠️</div>
+                        <div class="text-sm">
+                            An error has occurred at 0x${Math.floor(Math.random() * 1000000).toString(16).toUpperCase()}.<br>
+                            Application will be terminated.
+                        </div>
+                    </div>
+                    <button class="win95-btn" onclick="this.closest('.win95-window').remove()">OK</button>
+                </div>
+            `;
+
+            windowLayer.appendChild(win);
+        }
+
+        function spawnWindowAtClick(e) {
+            // Don't spawn if clicking on buttons
+            if (e.target.tagName === 'BUTTON' || e.target.closest('.win95-window')) return;
+
+            // Center the window on click
+            spawnWindow(e.clientX - 150, e.clientY - 75);
+        }
+
+        function cascade() {
+            for (let i = 0; i < 10; i++) {
+                setTimeout(() => {
+                    spawnWindow(50 + i * 30, 50 + i * 30);
+                }, i * 100);
+            }
+        }
+
+        function blueScreen() {
+            ctx.fillStyle = '#0000AA'; // BSOD Blue
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            windowLayer.innerHTML = ''; // Clear all windows
+
+            // Maybe add some BSOD text
+            ctx.fillStyle = 'white';
+            ctx.font = '20px monospace';
+            ctx.fillText('*** STOP: 0x000000ED (0x80F128D0, 0xC000009C, 0x00000000, 0x00000000)', 50, 100);
+            ctx.fillText('UNMOUNTABLE_BOOT_VOLUME', 50, 130);
+        }
+
+        // Drag Logic
+        function startDrag(e, win) {
+            e.preventDefault();
+            activeDrag = win;
+
+            // Bring to front
+            win.style.zIndex = zIndexCounter++;
+
+            const rect = win.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+        }
+
+        function stopDrag() {
+            activeDrag = null;
+        }
+
+        function handleDrag(e) {
+            if (!activeDrag) return;
+
+            const x = e.clientX - dragOffsetX;
+            const y = e.clientY - dragOffsetY;
+
+            activeDrag.style.left = `${x}px`;
+            activeDrag.style.top = `${y}px`;
+
+            // Stamp to canvas (The Glitch Effect)
+            stampWindow(x, y, activeDrag.offsetWidth, activeDrag.offsetHeight);
+        }
+
+        function stampWindow(x, y, w, h) {
+            // Draw the main body
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillRect(x, y, w, h);
+
+            // Draw borders (simplified)
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+
+            // Draw Title Bar
+            ctx.fillStyle = '#000080';
+            ctx.fillRect(x + 4, y + 4, w - 8, 20);
+
+            // Draw "X" button placeholder
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillRect(x + w - 22, y + 6, 16, 14);
+        }
+
+        // Global Event Listeners
+        window.addEventListener('mousemove', handleDrag);
+        window.addEventListener('mouseup', stopDrag);
+        window.addEventListener('mouseleave', stopDrag);
+
+        // Initial windows
+        spawnWindow(window.innerWidth / 2 - 150, window.innerHeight / 2 - 75);
+
+    </script>
+</body>
+
+</html>
