@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Typewriter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #222;
+            color: white;
+            font-family: sans-serif;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        nav {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+
+        a {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.5);
+            transition: all 0.2s;
+        }
+
+        a:hover {
+            color: white;
+            border-color: white;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        #instruction {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav>
+        <a href="../index.html">← Home</a>
+    </nav>
+
+    <div id="canvas-container"></div>
+
+    <div id="instruction">
+        Type to spawn • Enter for block • Space for zero-g • Drag to throw
+    </div>
+
+    <script>
+        // Module aliases
+        const Engine = Matter.Engine,
+            Render = Matter.Render,
+            Runner = Matter.Runner,
+            Bodies = Matter.Bodies,
+            Composite = Matter.Composite,
+            Mouse = Matter.Mouse,
+            MouseConstraint = Matter.MouseConstraint,
+            Events = Matter.Events,
+            Body = Matter.Body;
+
+        // Create engine
+        const engine = Engine.create();
+        const world = engine.world;
+
+        // Create renderer
+        const container = document.getElementById('canvas-container');
+        const render = Render.create({
+            element: container,
+            engine: engine,
+            options: {
+                width: window.innerWidth,
+                height: window.innerHeight,
+                background: '#222',
+                wireframes: false,
+                showAngleIndicator: false
+            }
+        });
+
+        // Neon colors
+        const colors = [
+            '#FF00FF', // Magenta
+            '#00FFFF', // Cyan
+            '#00FF00', // Lime
+            '#FFFF00', // Yellow
+            '#FF007F', // Rose
+            '#7FFF00', // Chartreuse
+            '#007FFF'  // Azure
+        ];
+
+        function getRandomColor() {
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        // Walls
+        const wallOptions = {
+            isStatic: true,
+            render: { fillStyle: '#444' }
+        };
+
+        let ground, leftWall, rightWall, ceiling;
+
+        function createWalls() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const thickness = 100;
+
+            Composite.clear(world, false, true); // Keep bodies, remove constraints/composites if any (but we want to remove old walls)
+
+            // Remove existing static bodies if any (simple way: just clear world of static bodies? No, might clear user objects)
+            // Better: just recreate them and add to world. 
+            // Actually, let's just clear everything on resize for simplicity or just update positions?
+            // For this MVP, let's just set them up initially.
+
+            ground = Bodies.rectangle(width / 2, height + thickness / 2, width, thickness, wallOptions);
+            leftWall = Bodies.rectangle(0 - thickness / 2, height / 2, thickness, height, wallOptions);
+            rightWall = Bodies.rectangle(width + thickness / 2, height / 2, thickness, height, wallOptions);
+            // Ceiling is useful to keep things in bounds if they fly up
+            ceiling = Bodies.rectangle(width / 2, -height * 2, width, thickness, wallOptions); // High ceiling
+
+            Composite.add(world, [ground, leftWall, rightWall, ceiling]);
+        }
+
+        createWalls();
+
+        // Mouse control
+        const mouse = Mouse.create(render.canvas);
+        const mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse,
+            constraint: {
+                stiffness: 0.2,
+                render: {
+                    visible: false
+                }
+            }
+        });
+
+        Composite.add(world, mouseConstraint);
+
+        // Keep the mouse in sync with rendering
+        render.mouse = mouse;
+
+        // Run the engine
+        Render.run(render);
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            render.canvas.width = window.innerWidth;
+            render.canvas.height = window.innerHeight;
+
+            // Remove old walls
+            Composite.remove(world, [ground, leftWall, rightWall, ceiling]);
+            createWalls();
+        });
+
+        // Custom rendering for text
+        Events.on(render, 'afterRender', function () {
+            const context = render.context;
+            const bodies = Composite.allBodies(world);
+
+            context.font = "bold 30px Arial";
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            context.fillStyle = "black";
+
+            for (let i = 0; i < bodies.length; i += 1) {
+                const body = bodies[i];
+                if (!body.isStatic && body.label && body.label.length === 1) {
+                    context.save();
+                    context.translate(body.position.x, body.position.y);
+                    context.rotate(body.angle);
+                    context.fillText(body.label, 0, 0);
+                    context.restore();
+                }
+            }
+        });
+
+        // Input handling
+        document.addEventListener('keydown', (event) => {
+            const key = event.key;
+            const width = window.innerWidth;
+
+            // Random x position within bounds
+            const x = Math.random() * (width - 100) + 50;
+            const y = -50; // Start above screen
+
+            if (key === 'Enter') {
+                // Spawn big block
+                const block = Bodies.rectangle(x, y, 200, 40, {
+                    render: { fillStyle: '#fff' },
+                    chamfer: { radius: 5 }
+                });
+                Composite.add(world, block);
+            } else if (key === ' ') {
+                // Anti-gravity shock
+                const bodies = Composite.allBodies(world);
+                bodies.forEach(body => {
+                    if (!body.isStatic) {
+                        Body.applyForce(body, body.position, { x: 0, y: -0.05 * body.mass });
+                    }
+                });
+            } else if (key.length === 1) {
+                // Character spawn
+                const isCircle = Math.random() > 0.5;
+                const size = 50;
+                const color = getRandomColor();
+
+                let body;
+                if (isCircle) {
+                    body = Bodies.circle(x, y, size / 2, {
+                        label: key,
+                        render: { fillStyle: color },
+                        restitution: 0.9 // Bouncy
+                    });
+                } else {
+                    body = Bodies.rectangle(x, y, size, size, {
+                        label: key,
+                        render: { fillStyle: color },
+                        chamfer: { radius: 5 },
+                        restitution: 0.9
+                    });
+                }
+
+                // Add random rotation
+                Body.setAngularVelocity(body, Math.random() * 0.2 - 0.1);
+
+                Composite.add(world, body);
+            }
+        });
+
+    </script>
+</body>
+
+</html>
