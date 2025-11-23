@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Portfolio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#0f172a',
+                        card: '#1e293b',
+                        primary: '#3b82f6',
+                        'primary-hover': '#2563eb',
+                        text: '#f8fafc',
+                        'text-muted': '#94a3b8',
+                        border: '#334155'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-background text-text min-h-screen p-8 md:p-12">
+
+    <main class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-12 text-center md:text-left">
+            <h1
+                class="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                My Projects
+            </h1>
+            <p class="text-text-muted text-lg max-w-2xl">
+                A collection of personal applications and experiments.
+            </p>
+        </header>
+
+        <!-- Grid Container -->
+        <div id="app-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Cards will be injected here -->
+        </div>
+    </main>
+
+    <script>
+        // App Data
+        const apps = [
+            {
+                title: "Emoji Mirror",
+                description: "A real-time webcam experiment that turns your reflection into a mosaic of emojis. Low-fi, glitchy, and fun.",
+                tags: ["Canvas API", "Webcam", "Creative Coding"],
+                image: "https://placehold.co/600x400/000000/ffffff?text=Emoji+Mirror",
+                demoUrl: "./app3_emoji_mirror/index.html",
+                codeUrl: "https://github.com/username/emoji-mirror"
+            },
+            {
+                title: "Virtual Bubble Wrap",
+                description: "Digital stress relief at your fingertips. Pop infinite bubbles with satisfying sound effects. No plastic waste, just pure satisfaction.",
+                tags: ["HTML5", "CSS3", "Web Audio API"],
+                image: "https://placehold.co/600x400/e2e8f0/94a3b8?text=Bubble+Wrap",
+                demoUrl: "./app2_bubble_wrap/index.html",
+                codeUrl: "https://github.com/username/bubble-wrap"
+            },
+            {
+                title: "The Useless Loader",
+                description: "A cyberpunk-themed void of productivity. Features a highly advanced progress bar that does absolutely nothing of value, but looks cool doing it.",
+                tags: ["HTML5", "Tailwind CSS", "Cyberpunk", "Joke"],
+                image: "https://placehold.co/600x400/0f172a/00ff00?text=System+Loader",
+                demoUrl: "./app1_useless_loader/index.html",
+                codeUrl: "https://github.com/username/useless-loader"
+            }
+        ];
+
+        // Render Function
+        function renderApps() {
+            const grid = document.getElementById('app-grid');
+
+            apps.forEach(app => {
+                const card = document.createElement('article');
+                card.className = "bg-transparent border border-border rounded-xl overflow-hidden hover:border-blue-500/50 transition-colors duration-300 flex flex-col h-full";
+
+                // Tags HTML
+                const tagsHtml = app.tags.map(tag =>
+                    `<span class="px-3 py-1 text-xs font-medium rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+                        ${tag}
+                    </span>`
+                ).join('');
+
+                card.innerHTML = `
+                    <div class="aspect-video w-full overflow-hidden bg-slate-800/50 border-b border-border">
+                        <img src="${app.image}" alt="${app.title}" class="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity duration-300">
+                    </div>
+                    
+                    <div class="p-6 flex flex-col flex-grow">
+                        <h2 class="text-xl font-bold mb-2 text-white">${app.title}</h2>
+                        <p class="text-text-muted text-sm mb-6 leading-relaxed flex-grow">
+                            ${app.description}
+                        </p>
+                        
+                        <div class="flex flex-wrap gap-2 mb-8">
+                            ${tagsHtml}
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-3 mt-auto">
+                            <a href="${app.codeUrl}" target="_blank" rel="noopener noreferrer" 
+                               class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-transparent hover:bg-slate-800 text-sm font-medium transition-colors text-slate-300 hover:text-white group">
+                                <i data-lucide="github" class="w-4 h-4"></i>
+                                Code
+                            </a>
+                            <a href="${app.demoUrl}" 
+                               class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-medium transition-colors shadow-lg shadow-blue-500/20">
+                                <i data-lucide="external-link" class="w-4 h-4"></i>
+                                Demo
+                            </a>
+                        </div>
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            });
+
+            // Initialize Icons
+            lucide.createIcons();
+        }
+
+        // Run on load
+        document.addEventListener('DOMContentLoaded', renderApps);
+    </script>
+</body>
+
+</html>

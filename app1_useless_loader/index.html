@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Useless Loader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#0f172a',
+                        terminal: '#00ff00',
+                        'terminal-dim': '#003300',
+                        error: '#ff0000',
+                    },
+                    fontFamily: {
+                        mono: ['"Courier New"', 'Courier', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes scanline {
+            0% {
+                transform: translateY(-100%);
+            }
+
+            100% {
+                transform: translateY(100%);
+            }
+        }
+
+        .scanline {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 0, 0.02) 51%, transparent 51%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .scanline::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100px;
+            background: linear-gradient(0deg, rgba(0, 255, 0, 0) 0%, rgba(0, 255, 0, 0.1) 50%, rgba(0, 255, 0, 0) 100%);
+            opacity: 0.1;
+            animation: scanline 8s linear infinite;
+        }
+
+        .crt-flicker {
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0% {
+                opacity: 0.97;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.98;
+            }
+        }
+
+        .glitch-text:hover {
+            animation: glitch 0.3s cubic-bezier(.25, .46, .45, .94) both infinite;
+            color: #ff00ff;
+        }
+
+        @keyframes glitch {
+            0% {
+                transform: translate(0)
+            }
+
+            20% {
+                transform: translate(-2px, 2px)
+            }
+
+            40% {
+                transform: translate(-2px, -2px)
+            }
+
+            60% {
+                transform: translate(2px, 2px)
+            }
+
+            80% {
+                transform: translate(2px, -2px)
+            }
+
+            100% {
+                transform: translate(0)
+            }
+        }
+    </style>
+</head>
+
+<body
+    class="bg-background text-terminal font-mono min-h-screen flex flex-col overflow-hidden relative crt-flicker selection:bg-terminal selection:text-black">
+
+    <!-- CRT Effect Overlay -->
+    <div class="scanline"></div>
+
+    <!-- Navigation -->
+    <nav class="p-4 z-10">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-terminal hover:text-white transition-colors border border-terminal hover:border-white px-4 py-2 rounded uppercase text-sm tracking-widest">
+            <span>&lt;-</span> Home
+        </a>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow flex flex-col items-center justify-center p-4 z-10 w-full max-w-3xl mx-auto">
+
+        <h1
+            class="text-4xl md:text-6xl font-bold mb-12 text-center uppercase tracking-widest glitch-text cursor-default">
+            System Loader v9.0
+        </h1>
+
+        <!-- Loader Container -->
+        <div class="w-full border-2 border-terminal p-1 mb-8 relative shadow-[0_0_15px_rgba(0,255,0,0.3)]">
+            <div id="progress-bar"
+                class="h-12 bg-terminal w-0 transition-all duration-100 ease-linear shadow-[0_0_10px_rgba(0,255,0,0.8)]">
+            </div>
+            <div class="absolute inset-0 flex items-center justify-center mix-blend-difference">
+                <span id="percentage" class="text-xl font-bold">0%</span>
+            </div>
+        </div>
+
+        <!-- Log Area -->
+        <div id="log-container"
+            class="w-full h-48 border border-terminal-dim bg-black/50 p-4 overflow-hidden font-xs mb-8 text-left relative">
+            <div id="logs" class="flex flex-col justify-end min-h-full gap-1 text-sm opacity-80">
+                <div class="text-terminal-dim">Waiting for user input...</div>
+            </div>
+        </div>
+
+        <!-- Control Button -->
+        <button id="start-btn" onclick="startLoading()"
+            class="bg-terminal text-black font-bold text-xl px-12 py-4 hover:bg-white hover:text-black transition-all duration-200 uppercase tracking-widest shadow-[0_0_20px_rgba(0,255,0,0.5)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] active:scale-95">
+            Initialize System
+        </button>
+
+        <!-- Status Message -->
+        <div id="status-msg" class="mt-8 text-xl h-8 text-center"></div>
+
+    </main>
+
+    <script>
+        const logs = [
+            "Reticulating splines...",
+            "Adjusting quantum flux...",
+            "Downloading more RAM...",
+            "Compiling spaghetti code...",
+            "Deleting system32 (just kidding)...",
+            "Mining bitcoins for the developer...",
+            "Calibrating flux capacitor...",
+            "Feeding the hamsters...",
+            "Decrypting the matrix...",
+            "Optimizing emotional stability...",
+            "Generating witty loading messages...",
+            "Checking for sentient AI...",
+            "Suppressing robot uprising...",
+            "Installing unnecessary updates...",
+            "Buffering the buffer...",
+            "Leaking memory intentionally...",
+            "Converting coffee to code...",
+            "Reversing polarity of the neutron flow...",
+            "Establishing connection to Mars...",
+            "Ping: 9999ms...",
+            "Dividing by zero...",
+            "Summoning demons...",
+            "Patching the fabric of reality...",
+            "Suture dimensional rifts...",
+            "Overclocking the toaster...",
+            "Analyzing user patience levels..."
+        ];
+
+        let progress = 0;
+        let interval;
+        let isRunning = false;
+        const progressBar = document.getElementById('progress-bar');
+        const percentage = document.getElementById('percentage');
+        const logContainer = document.getElementById('logs');
+        const startBtn = document.getElementById('start-btn');
+        const statusMsg = document.getElementById('status-msg');
+
+        function addLog(msg, type = 'info') {
+            const div = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false }) + '.' + Math.floor(Math.random() * 999).toString().padStart(3, '0');
+
+            if (type === 'error') {
+                div.className = "text-error font-bold";
+                div.innerText = `[${timestamp}] ERROR: ${msg}`;
+            } else if (type === 'success') {
+                div.className = "text-white font-bold";
+                div.innerText = `[${timestamp}] SUCCESS: ${msg}`;
+            } else {
+                div.className = "text-terminal";
+                div.innerText = `[${timestamp}] INFO: ${msg}`;
+            }
+
+            logContainer.appendChild(div);
+            // Keep only last 10 logs
+            if (logContainer.children.length > 10) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+            // Auto scroll is handled by flex-col justify-end
+        }
+
+        function startLoading() {
+            if (isRunning) return;
+            isRunning = true;
+            startBtn.disabled = true;
+            startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            startBtn.innerText = "PROCESSING...";
+
+            progress = 0;
+            progressBar.style.width = '0%';
+            percentage.innerText = '0%';
+            statusMsg.innerText = "";
+            statusMsg.className = "mt-8 text-xl h-8 text-center text-terminal";
+
+            // Clear logs
+            logContainer.innerHTML = '';
+            addLog("System initialization sequence started...");
+
+            const loop = () => {
+                // Random behavior logic
+                const chance = Math.random();
+
+                if (progress >= 99) {
+                    // Stall at 99%
+                    if (Math.random() > 0.95) {
+                        finish();
+                        return;
+                    }
+                    // Occasionally tease
+                    addLog("Verifying integrity of the void...", "info");
+                } else {
+                    if (chance > 0.9) {
+                        // Small setback
+                        progress = Math.max(0, progress - Math.random() * 5);
+                        addLog("Minor setback detected, rolling back...", "error");
+                    } else if (chance > 0.7) {
+                        // Fast jump
+                        progress = Math.min(99, progress + Math.random() * 10);
+                        addLog(logs[Math.floor(Math.random() * logs.length)]);
+                    } else if (chance > 0.3) {
+                        // Normal increment
+                        progress = Math.min(99, progress + Math.random() * 2);
+                        if (Math.random() > 0.7) addLog(logs[Math.floor(Math.random() * logs.length)]);
+                    } else {
+                        // Stall
+                        // Do nothing
+                    }
+                }
+
+                // Update UI
+                progressBar.style.width = `${progress}%`;
+                percentage.innerText = `${Math.floor(progress)}%`;
+
+                // Randomize speed for next tick
+                if (isRunning) {
+                    setTimeout(loop, Math.random() * 200 + 50);
+                }
+            };
+
+            loop();
+        }
+
+        function finish() {
+            isRunning = false;
+            progress = 100;
+            progressBar.style.width = '100%';
+            percentage.innerText = '100%';
+            progressBar.classList.remove('bg-terminal');
+            progressBar.classList.add('bg-error');
+
+            addLog("CRITICAL FAILURE DETECTED", "error");
+            addLog("Task Failed Successfully", "success");
+
+            statusMsg.innerText = "Error: Task Failed Successfully";
+            statusMsg.className = "mt-8 text-2xl h-8 text-center text-error font-bold blink";
+
+            startBtn.disabled = false;
+            startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            startBtn.innerText = "RETRY SYSTEM";
+
+            // Revert bar color after a moment for retry
+            setTimeout(() => {
+                progressBar.classList.remove('bg-error');
+                progressBar.classList.add('bg-terminal');
+            }, 2000);
+        }
+    </script>
+</body>
+
+</html>

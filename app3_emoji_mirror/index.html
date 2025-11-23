@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Mirror</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+
+        canvas {
+            image-rendering: pixelated;
+            /* Enhance the low-fi vibe */
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col items-center justify-center relative">
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-20">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-white/70 hover:text-white transition-colors border border-white/20 hover:border-white/50 px-4 py-2 rounded bg-black/50 backdrop-blur-sm">
+            <span>&lt;-</span> Home
+        </a>
+    </nav>
+
+    <!-- Main Canvas -->
+    <canvas id="main-canvas" class="max-w-full max-h-screen shadow-2xl shadow-white/10"></canvas>
+
+    <!-- Hidden Video Element -->
+    <video id="webcam" autoplay playsinline class="hidden"></video>
+
+    <!-- Controls -->
+    <div id="controls" class="absolute bottom-12 z-20 flex flex-col items-center gap-4">
+        <button id="start-btn" onclick="startCamera()"
+            class="bg-white text-black font-bold py-3 px-8 rounded-full hover:bg-gray-200 transition-transform hover:scale-105 active:scale-95 shadow-lg shadow-white/20">
+            Start Camera
+        </button>
+        <p id="status" class="text-sm text-gray-400"></p>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const startBtn = document.getElementById('start-btn');
+        const statusText = document.getElementById('status');
+
+        // Configuration
+        const BLOCK_SIZE = 16; // Size of each emoji block
+        let isStreaming = false;
+
+        // Emoji Map
+        function getEmojiForColor(r, g, b) {
+            // Simple color classification logic
+            // Calculate brightness
+            const brightness = (r + g + b) / 3;
+
+            // Check for very dark or very bright first
+            if (brightness < 40) return '⚫';
+            if (brightness > 220) return '⚪';
+
+            // Find dominant color
+            const max = Math.max(r, g, b);
+
+            if (max === r) {
+                // Red dominant
+                if (g > r * 0.8 && b < r * 0.5) return '📒'; // Yellowish (Red + Green)
+                return '🍎';
+            } else if (max === g) {
+                // Green dominant
+                return '📗';
+            } else {
+                // Blue dominant
+                return '📘';
+            }
+        }
+
+        async function startCamera() {
+            try {
+                statusText.innerText = "Requesting camera access...";
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    }
+                });
+
+                video.srcObject = stream;
+                await video.play();
+
+                isStreaming = true;
+                startBtn.classList.add('hidden');
+                statusText.innerText = "";
+
+                // Initialize canvas size to match video aspect ratio
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+
+                // Start the loop
+                requestAnimationFrame(draw);
+            } catch (err) {
+                console.error("Error accessing webcam:", err);
+                statusText.innerText = "Error: Could not access camera. Please allow permissions.";
+                statusText.classList.add('text-red-500');
+            }
+        }
+
+        function resizeCanvas() {
+            if (!isStreaming) return;
+
+            // Set canvas size to window size but maintain aspect ratio logic if needed
+            // For this art style, we can just fill the screen or keep it fixed.
+            // Let's make it fixed resolution for the "art" but scaled up via CSS
+            canvas.width = 640;
+            canvas.height = 480;
+        }
+
+        function draw() {
+            if (!isStreaming) return;
+
+            // 1. Draw video to canvas first to get pixel data (scaled down)
+            // We draw it small so we have fewer pixels to process (optimization)
+            const w = canvas.width / BLOCK_SIZE;
+            const h = canvas.height / BLOCK_SIZE;
+
+            // Use a temporary offscreen canvas for processing if needed, 
+            // but here we can just read from the video directly if we draw it small?
+            // Actually, let's draw the video to the main canvas but very small, get data, then clear and draw emojis.
+
+            // Create a temporary canvas for pixel reading
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = w;
+            tempCanvas.height = h;
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+            // Draw video scaled down
+            tempCtx.drawImage(video, 0, 0, w, h);
+
+            // Get pixel data
+            const frame = tempCtx.getImageData(0, 0, w, h);
+            const data = frame.data;
+
+            // Clear main canvas
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Font settings for emojis
+            ctx.font = `${BLOCK_SIZE}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Loop through pixels
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const index = (y * w + x) * 4;
+                    const r = data[index];
+                    const g = data[index + 1];
+                    const b = data[index + 2];
+                    // alpha is data[index + 3]
+
+                    const emoji = getEmojiForColor(r, g, b);
+
+                    // Draw emoji on main canvas
+                    // Mirror the x-axis for a mirror effect
+                    const drawX = (w - 1 - x) * BLOCK_SIZE + (BLOCK_SIZE / 2);
+                    const drawY = y * BLOCK_SIZE + (BLOCK_SIZE / 2);
+
+                    ctx.fillText(emoji, drawX, drawY);
+                }
+            }
+
+            requestAnimationFrame(draw);
+        }
+    </script>
+</body>
+
+</html>
