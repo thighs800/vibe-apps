@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaleido-Cam</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #444;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-pink-500 hover:text-pink-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-pink-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls -->
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-2xl px-4">
+        <div
+            class="bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
+
+            <div class="flex flex-col w-full md:w-1/3 gap-2">
+                <div class="flex justify-between text-xs text-gray-400 font-mono">
+                    <span>Slices</span>
+                    <span id="slices-val">12</span>
+                </div>
+                <input type="range" id="slices-slider" min="4" max="24" step="2" value="12">
+            </div>
+
+            <div class="flex flex-col w-full md:w-1/3 gap-2">
+                <div class="flex justify-between text-xs text-gray-400 font-mono">
+                    <span>Zoom</span>
+                    <span id="zoom-val">1.0x</span>
+                </div>
+                <input type="range" id="zoom-slider" min="0.5" max="3.0" step="0.1" value="1.0">
+            </div>
+
+            <div class="flex items-center gap-3">
+                <input type="checkbox" id="rotate-check" class="w-5 h-5 accent-pink-500 rounded cursor-pointer">
+                <label for="rotate-check" class="text-sm font-medium cursor-pointer select-none">Auto Rotate</label>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Hidden Video -->
+    <video id="video" class="hidden" autoplay playsinline></video>
+
+    <!-- Canvas -->
+    <canvas id="canvas" class="block w-full h-full"></canvas>
+
+    <div id="error-msg"
+        class="hidden absolute inset-0 flex items-center justify-center bg-black/90 text-red-500 text-xl text-center p-8">
+        Camera access denied.<br>Please allow camera access to use this app.
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const errorMsg = document.getElementById('error-msg');
+
+        const slicesSlider = document.getElementById('slices-slider');
+        const slicesVal = document.getElementById('slices-val');
+        const zoomSlider = document.getElementById('zoom-slider');
+        const zoomVal = document.getElementById('zoom-val');
+        const rotateCheck = document.getElementById('rotate-check');
+
+        let slices = 12;
+        let zoom = 1.0;
+        let autoRotate = false;
+        let rotationAngle = 0;
+
+        // Resize Canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Camera Init
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    requestAnimationFrame(draw);
+                };
+            } catch (err) {
+                console.error("Camera Error:", err);
+                errorMsg.classList.remove('hidden');
+            }
+        }
+
+        function draw() {
+            if (video.paused || video.ended) return;
+
+            // Clear background
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = Math.max(cx, cy) * 1.5; // Ensure coverage
+            const step = (Math.PI * 2) / slices;
+
+            // Update rotation
+            if (autoRotate) {
+                rotationAngle += 0.005;
+            }
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rotationAngle);
+
+            for (let i = 0; i < slices; i++) {
+                ctx.save();
+                ctx.rotate(i * step);
+
+                // Create triangle clip path for this segment
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, radius, -step / 2 - 0.01, step / 2 + 0.01); // Slight overlap to prevent gaps
+                ctx.lineTo(0, 0);
+                ctx.closePath();
+                ctx.clip();
+
+                // Mirror every other slice
+                if (i % 2 !== 0) {
+                    ctx.scale(-1, 1);
+                }
+
+                // Draw video
+                // Calculate video positioning to center it in the slice
+                // We want the center of the video to be at (0,0) after some offset
+                // But effectively we just draw the video centered at some distance?
+                // Actually, standard kaleidoscope takes a patch from the source.
+
+                // Let's map the video center to the canvas center (0,0 here)
+                // And apply zoom
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+
+                // Scale video based on zoom
+                // We want to draw the video such that its center aligns with the tip of the triangle (0,0)
+                // Or maybe offset it so we see more than just the center point repeated?
+                // Usually kaleidoscopes look at an offset point.
+
+                // Let's try centering the video at (0,0) first, but scaled.
+                const drawW = vw * zoom;
+                const drawH = vh * zoom;
+
+                // Offset the video slightly so we aren't just rotating the center pixel
+                // A kaleidoscope usually reflects a wedge starting from center.
+                // So we just draw the image centered at (0,0).
+                // But to make it interesting, we might want to translate the video source?
+                // For now, simple centered drawing:
+
+                // To make it look like a seamless pattern, we need to align the image carefully.
+                // Rotating the image 90 degrees might help if the slice is vertical?
+                // The slice is centered around angle 0 (right).
+
+                ctx.rotate(-Math.PI / 2); // Rotate image so top is outwards?
+                ctx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
+
+                ctx.restore();
+            }
+
+            ctx.restore();
+
+            requestAnimationFrame(draw);
+        }
+
+        // Controls
+        slicesSlider.addEventListener('input', (e) => {
+            slices = parseInt(e.target.value);
+            slicesVal.innerText = slices;
+        });
+
+        zoomSlider.addEventListener('input', (e) => {
+            zoom = parseFloat(e.target.value);
+            zoomVal.innerText = zoom.toFixed(1) + 'x';
+        });
+
+        rotateCheck.addEventListener('change', (e) => {
+            autoRotate = e.target.checked;
+        });
+
+        initCamera();
+
+    </script>
+</body>
+
+</html>

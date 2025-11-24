@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Attack Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #020617;
+            color: #e2e8f0;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* CRT Scanline Effect */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.2) 50%, rgba(0, 0, 0, 0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, transparent 50%, black 150%);
+            pointer-events: none;
+            z-index: 20;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 transition-colors bg-slate-900/80 px-4 py-2 rounded border border-emerald-900/50 font-bold backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Stats -->
+    <div class="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none select-none">
+        <div
+            class="bg-slate-900/80 border border-slate-700 p-4 rounded-lg backdrop-blur-sm w-72 shadow-lg shadow-emerald-900/20">
+            <div class="flex justify-between items-baseline mb-2">
+                <div class="text-xs text-slate-400">THREAT LEVEL</div>
+                <div class="text-xs font-bold text-red-500 animate-pulse">CRITICAL</div>
+            </div>
+            <div class="text-xs text-slate-500 mb-1">TOTAL INTERCEPTIONS</div>
+            <div class="text-4xl font-bold text-white font-mono tracking-widest" id="total-attacks">000000</div>
+            <div class="h-px bg-slate-700 my-3"></div>
+            <div class="flex justify-between text-sm">
+                <span class="text-slate-400">ACTIVE THREATS</span>
+                <span class="text-emerald-400 font-mono text-lg" id="active-threats">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Window -->
+    <div
+        class="absolute bottom-4 left-4 right-4 h-48 bg-slate-900/90 border border-slate-700 rounded-lg backdrop-blur-md z-40 overflow-hidden flex flex-col shadow-2xl">
+        <div
+            class="bg-slate-800/50 px-4 py-2 text-xs text-slate-400 border-b border-slate-700 flex justify-between items-center">
+            <span class="flex items-center gap-2">
+                <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                LIVE THREAT FEED
+            </span>
+            <span class="font-mono text-[10px] opacity-50">SECURE CONNECTION ESTABLISHED</span>
+        </div>
+        <div id="log-container" class="flex-1 p-4 overflow-hidden relative font-mono text-xs space-y-1">
+            <!-- Logs go here -->
+            <div
+                class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-slate-900 to-transparent pointer-events-none">
+            </div>
+        </div>
+    </div>
+
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const totalAttacksEl = document.getElementById('total-attacks');
+        const activeThreatsEl = document.getElementById('active-threats');
+        const logContainer = document.getElementById('log-container');
+
+        let width, height;
+        let nodes = [];
+        let attacks = [];
+        let ripples = [];
+        let totalAttacks = 0;
+
+        // Attack Types
+        const attackTypes = [
+            { name: 'DDoS', color: '#ef4444' },    // Red
+            { name: 'Malware', color: '#22c55e' }, // Green
+            { name: 'Phishing', color: '#eab308' },// Yellow
+            { name: 'Probe', color: '#3b82f6' },   // Blue
+            { name: 'Brute Force', color: '#d946ef' } // Fuchsia
+        ];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initNodes();
+        }
+        window.addEventListener('resize', resize);
+
+        function initNodes() {
+            nodes = [];
+            const numNodes = 60;
+            // Create a pseudo-world map distribution
+            // We can just use random points but constrain them to a central band
+            // and maybe cluster them slightly.
+
+            for (let i = 0; i < numNodes; i++) {
+                const x = Math.random() * (width - 100) + 50;
+                // Bias Y towards center (equator)
+                const yBias = (Math.random() - 0.5) + (Math.random() - 0.5); // Bell curve-ish
+                const y = (height / 2) + yBias * (height / 3);
+
+                // Ensure within bounds and not behind UI
+                if (y > 50 && y < height - 250) {
+                    nodes.push({ x, y });
+                } else {
+                    i--; // Retry
+                }
+            }
+        }
+
+        function spawnAttack() {
+            if (nodes.length < 2) return;
+
+            const startNode = nodes[Math.floor(Math.random() * nodes.length)];
+            let endNode = nodes[Math.floor(Math.random() * nodes.length)];
+            while (startNode === endNode) {
+                endNode = nodes[Math.floor(Math.random() * nodes.length)];
+            }
+
+            const type = attackTypes[Math.floor(Math.random() * attackTypes.length)];
+
+            const dx = endNode.x - startNode.x;
+            const dy = endNode.y - startNode.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const duration = 800 + dist * 1.5; // Speed based on distance
+
+            // Calculate control point for arch
+            // The arch should always go "up" (negative Y) relative to the line connecting them?
+            // Or just "up" in screen space.
+            // Let's make it go "outwards" from the center of the earth (screen center)?
+            // Or just simple negative Y offset.
+            const midX = (startNode.x + endNode.x) / 2;
+            const midY = (startNode.y + endNode.y) / 2;
+            const archHeight = dist * 0.5;
+
+            attacks.push({
+                start: startNode,
+                end: endNode,
+                progress: 0,
+                speed: 1 / (duration / 16),
+                type: type,
+                controlPoint: {
+                    x: midX,
+                    y: midY - archHeight
+                }
+            });
+
+            totalAttacks++;
+            // Pad with zeros
+            totalAttacksEl.innerText = totalAttacks.toString().padStart(6, '0');
+
+            addLog(type);
+        }
+
+        function addLog(type) {
+            const ip = `${Math.floor(Math.random() * 223) + 1}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+            const div = document.createElement('div');
+            div.className = 'flex gap-2 items-center opacity-0 transform translate-y-2 transition-all duration-300';
+
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            div.innerHTML = `
+                <span class="text-slate-500">[${time}]</span>
+                <span style="color: ${type.color}">${type.name.toUpperCase()}</span>
+                <span class="text-slate-400">SRC: ${ip}</span>
+            `;
+
+            // Insert at top
+            logContainer.insertBefore(div, logContainer.firstChild);
+
+            // Trigger animation
+            requestAnimationFrame(() => {
+                div.classList.remove('opacity-0', 'translate-y-2');
+            });
+
+            // Cleanup
+            if (logContainer.children.length > 15) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        function update() {
+            // Update Attacks
+            for (let i = attacks.length - 1; i >= 0; i--) {
+                const atk = attacks[i];
+                atk.progress += atk.speed;
+
+                if (atk.progress >= 1) {
+                    // Impact Ripple
+                    ripples.push({
+                        x: atk.end.x,
+                        y: atk.end.y,
+                        radius: 0,
+                        maxRadius: 30,
+                        alpha: 1,
+                        color: atk.type.color
+                    });
+                    attacks.splice(i, 1);
+                }
+            }
+
+            // Update Ripples
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                const r = ripples[i];
+                r.radius += 1.5;
+                r.alpha -= 0.03;
+                if (r.alpha <= 0) {
+                    ripples.splice(i, 1);
+                }
+            }
+
+            activeThreatsEl.innerText = attacks.length;
+        }
+
+        function draw() {
+            // Background
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, width, height);
+
+            // World Map Dots (Static Background)
+            // We could draw a faint world map here if we had data, but we just use the nodes + faint grid
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Grid
+            const gridSize = 50;
+            for (let x = 0; x < width; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+            for (let y = 0; y < height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+            ctx.stroke();
+
+            // Draw Nodes
+            for (const node of nodes) {
+                ctx.fillStyle = '#475569';
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Faint glow
+                ctx.fillStyle = 'rgba(71, 85, 105, 0.2)';
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw Attacks
+            ctx.globalCompositeOperation = 'lighter';
+
+            for (const atk of attacks) {
+                const t = atk.progress;
+                const tailLength = 0.2; // Length of the trail in time units
+
+                // We want to draw a smooth curve segment from (t - tailLength) to t
+                // We can approximate this by drawing line segments
+
+                const numSegments = 10;
+                ctx.beginPath();
+
+                for (let j = 0; j <= numSegments; j++) {
+                    const currentT = Math.max(0, t - tailLength + (j / numSegments) * tailLength);
+                    const pos = getQuadraticBezierPoint(atk.start, atk.controlPoint, atk.end, currentT);
+
+                    if (j === 0) ctx.moveTo(pos.x, pos.y);
+                    else ctx.lineTo(pos.x, pos.y);
+                }
+
+                // Gradient Stroke
+                const headPos = getQuadraticBezierPoint(atk.start, atk.controlPoint, atk.end, t);
+                const tailPos = getQuadraticBezierPoint(atk.start, atk.controlPoint, atk.end, Math.max(0, t - tailLength));
+
+                const grad = ctx.createLinearGradient(tailPos.x, tailPos.y, headPos.x, headPos.y);
+                grad.addColorStop(0, 'transparent');
+                grad.addColorStop(1, atk.type.color);
+
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+
+                // Glowing Head
+                ctx.fillStyle = '#fff';
+                ctx.shadowColor = atk.type.color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(headPos.x, headPos.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            // Draw Ripples
+            ctx.lineWidth = 2;
+            for (const r of ripples) {
+                ctx.strokeStyle = r.color;
+                ctx.globalAlpha = r.alpha;
+                ctx.beginPath();
+                ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Echo ripple
+                if (r.radius > 10) {
+                    ctx.globalAlpha = r.alpha * 0.5;
+                    ctx.beginPath();
+                    ctx.arc(r.x, r.y, r.radius - 10, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function getQuadraticBezierPoint(p0, p1, p2, t) {
+            const invT = 1 - t;
+            return {
+                x: invT * invT * p0.x + 2 * invT * t * p1.x + t * t * p2.x,
+                y: invT * invT * p0.y + 2 * invT * t * p1.y + t * t * p2.y
+            };
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Spawner
+        setInterval(spawnAttack, 300); // Attack frequency
+
+        resize();
+        initNodes(); // Ensure nodes are init
+        loop();
+
+    </script>
+</body>
+
+</html>

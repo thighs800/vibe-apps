@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Particle Text</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-yellow-400 hover:text-yellow-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-yellow-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Controls -->
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-50 flex gap-2 w-full max-w-md px-4">
+        <input type="text" id="text-input" value="VIBE"
+            class="flex-1 bg-black/50 border border-gray-700 rounded px-4 py-2 text-white focus:outline-none focus:border-yellow-500 font-bold tracking-widest text-center uppercase"
+            maxlength="10">
+        <button id="update-btn"
+            class="bg-yellow-600 hover:bg-yellow-500 text-black font-bold px-6 py-2 rounded transition-colors">
+            UPDATE
+        </button>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const textInput = document.getElementById('text-input');
+        const updateBtn = document.getElementById('update-btn');
+
+        let width, height;
+        let particles = [];
+        let mouse = { x: null, y: null, radius: 100 };
+
+        // Physics Constants
+        const friction = 0.9;
+        const ease = 0.1; // Spring strength (return speed)
+        const density = 4; // Scan step (lower = more particles)
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initParticles(textInput.value);
+        }
+        window.addEventListener('resize', resize);
+
+        class Particle {
+            constructor(x, y) {
+                this.x = Math.random() * width; // Start random
+                this.y = Math.random() * height;
+                this.targetX = x;
+                this.targetY = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = 2;
+                this.color = 'white';
+
+                // Randomize color slightly (Gold/White mix)
+                if (Math.random() > 0.8) {
+                    this.color = '#FFD700'; // Gold
+                }
+            }
+
+            update() {
+                // Mouse Interaction
+                const dx = mouse.x - this.x;
+                const dy = mouse.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Repulsion Force
+                if (distance < mouse.radius) {
+                    const forceDirectionX = dx / distance;
+                    const forceDirectionY = dy / distance;
+                    const force = (mouse.radius - distance) / mouse.radius;
+                    const directionX = forceDirectionX * force * 5; // Strength
+                    const directionY = forceDirectionY * force * 5;
+
+                    this.vx -= directionX;
+                    this.vy -= directionY;
+                }
+
+                // Return to Target (Spring)
+                // F = (target - current) * k
+                // But we usually just do: (target - current) * ease
+                // Let's use velocity for smoother physics
+
+                const dxHome = this.targetX - this.x;
+                const dyHome = this.targetY - this.y;
+
+                this.vx += dxHome * ease * 0.5; // Add force towards home
+                this.vy += dyHome * ease * 0.5;
+
+                // Friction
+                this.vx *= friction;
+                this.vy *= friction;
+
+                // Update Position
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function initParticles(text) {
+            particles = [];
+
+            // Draw text to canvas first to scan it
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = 'white';
+            // Responsive font size
+            const fontSize = Math.min(width / 4, 200);
+            ctx.font = `900 ${fontSize}px Verdana`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text.toUpperCase(), width / 2, height / 2);
+
+            // Scan pixel data
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            ctx.clearRect(0, 0, width, height); // Clear text
+
+            for (let y = 0; y < height; y += density) {
+                for (let x = 0; x < width; x += density) {
+                    // Check alpha channel (every 4th value)
+                    const index = (y * width + x) * 4 + 3;
+                    if (data[index] > 128) {
+                        particles.push(new Particle(x, y));
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+
+            // Connect particles with lines if close? (Optional, maybe too heavy)
+            // Just draw dots for now as per requirement "Particle Text"
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // Interaction
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.x;
+            mouse.y = e.y;
+        });
+
+        // Touch support
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        }, { passive: false });
+
+        updateBtn.addEventListener('click', () => {
+            initParticles(textInput.value);
+        });
+
+        textInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') initParticles(textInput.value);
+        });
+
+        resize();
+        animate();
+
+    </script>
+</body>
+
+</html>

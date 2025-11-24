@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Fluid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            /* Smooth scaling for smoke effect */
+            image-rendering: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-fuchsia-400 hover:text-fuchsia-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-fuchsia-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <div class="absolute bottom-4 left-4 z-50 text-xs text-gray-500 pointer-events-none select-none">
+        Move mouse to emit fluid • Click to splash
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency
+
+        // Simulation Settings
+        const N = 128; // Grid size (Power of 2 is often better for some algos, but N+2 is used here)
+        const iter = 4;
+
+        // Arrays
+        const size = (N + 2) * (N + 2);
+        let u = new Float32Array(size); // Velocity X
+        let v = new Float32Array(size); // Velocity Y
+        let u_prev = new Float32Array(size);
+        let v_prev = new Float32Array(size);
+        let dens = new Float32Array(size); // Density
+        let dens_prev = new Float32Array(size);
+
+        // Rendering Buffer
+        // We draw to a small canvas, so we need an ImageData buffer of size (N+2)x(N+2)
+        // Actually we only care about 1..N, but let's just map the whole buffer for simplicity
+        const width = N + 2;
+        const height = N + 2;
+        canvas.width = width;
+        canvas.height = height;
+
+        const imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+
+        let hue = 0;
+
+        // --- Fluid Solver (Jos Stam's Stable Fluids) ---
+
+        function IX(x, y) {
+            return x + (N + 2) * y;
+        }
+
+        function add_source(x, s, dt) {
+            for (let i = 0; i < size; i++) {
+                x[i] += dt * s[i];
+            }
+        }
+
+        function set_bnd(b, x) {
+            for (let i = 1; i <= N; i++) {
+                x[IX(0, i)] = b === 1 ? -x[IX(1, i)] : x[IX(1, i)];
+                x[IX(N + 1, i)] = b === 1 ? -x[IX(N, i)] : x[IX(N, i)];
+                x[IX(i, 0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+                x[IX(i, N + 1)] = b === 2 ? -x[IX(i, N)] : x[IX(i, N)];
+            }
+            x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]);
+            x[IX(0, N + 1)] = 0.5 * (x[IX(1, N + 1)] + x[IX(0, N)]);
+            x[IX(N + 1, 0)] = 0.5 * (x[IX(N, 0)] + x[IX(N + 1, 1)]);
+            x[IX(N + 1, N + 1)] = 0.5 * (x[IX(N, N + 1)] + x[IX(N + 1, N)]);
+        }
+
+        function lin_solve(b, x, x0, a, c) {
+            const cRecip = 1.0 / c;
+            for (let k = 0; k < iter; k++) {
+                for (let j = 1; j <= N; j++) {
+                    for (let i = 1; i <= N; i++) {
+                        x[IX(i, j)] =
+                            (x0[IX(i, j)] +
+                                a *
+                                (x[IX(i + 1, j)] +
+                                    x[IX(i - 1, j)] +
+                                    x[IX(i, j + 1)] +
+                                    x[IX(i, j - 1)])) *
+                            cRecip;
+                    }
+                }
+                set_bnd(b, x);
+            }
+        }
+
+        function diffuse(b, x, x0, diff, dt) {
+            const a = dt * diff * (N - 2) * (N - 2);
+            lin_solve(b, x, x0, a, 1 + 4 * a);
+        }
+
+        function project(u, v, p, div) {
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    div[IX(i, j)] =
+                        (-0.5 *
+                            (u[IX(i + 1, j)] -
+                                u[IX(i - 1, j)] +
+                                v[IX(i, j + 1)] -
+                                v[IX(i, j - 1)])) /
+                        N;
+                    p[IX(i, j)] = 0;
+                }
+            }
+            set_bnd(0, div);
+            set_bnd(0, p);
+            lin_solve(0, p, div, 1, 4);
+
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    u[IX(i, j)] -= 0.5 * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
+                    v[IX(i, j)] -= 0.5 * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * N;
+                }
+            }
+            set_bnd(1, u);
+            set_bnd(2, v);
+        }
+
+        function advect(b, d, d0, u, v, dt) {
+            let i0, i1, j0, j1;
+            let x, y, s0, t0, s1, t1, dt0;
+
+            dt0 = dt * N;
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    x = i - dt0 * u[IX(i, j)];
+                    y = j - dt0 * v[IX(i, j)];
+
+                    if (x < 0.5) x = 0.5;
+                    if (x > N + 0.5) x = N + 0.5;
+                    i0 = Math.floor(x);
+                    i1 = i0 + 1;
+
+                    if (y < 0.5) y = 0.5;
+                    if (y > N + 0.5) y = N + 0.5;
+                    j0 = Math.floor(y);
+                    j1 = j0 + 1;
+
+                    s1 = x - i0;
+                    s0 = 1.0 - s1;
+                    t1 = y - j0;
+                    t0 = 1.0 - t1;
+
+                    d[IX(i, j)] =
+                        s0 * (t0 * d0[IX(i0, j0)] + t1 * d0[IX(i0, j1)]) +
+                        s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
+                }
+            }
+            set_bnd(b, d);
+        }
+
+        function vel_step(u, v, u0, v0, visc, dt) {
+            add_source(u, u0, dt);
+            add_source(v, v0, dt);
+
+            let temp = u0; u0 = u; u = temp;
+            temp = v0; v0 = v; v = temp;
+
+            diffuse(1, u, u0, visc, dt);
+            diffuse(2, v, v0, visc, dt);
+
+            project(u, v, u0, v0);
+
+            temp = u0; u0 = u; u = temp;
+            temp = v0; v0 = v; v = temp;
+
+            advect(1, u, u0, u0, v0, dt);
+            advect(2, v, v0, u0, v0, dt);
+
+            project(u, v, u0, v0);
+        }
+
+        function dens_step(x, x0, u, v, diff, dt) {
+            add_source(x, x0, dt);
+            let temp = x0; x0 = x; x = temp;
+            diffuse(0, x, x0, diff, dt);
+            temp = x0; x0 = x; x = temp;
+            advect(0, x, x0, u, v, dt);
+        }
+
+        // --- Interaction ---
+        let prevMouseX = 0, prevMouseY = 0;
+        let isMouseDown = false;
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect(); // This is the displayed size (window size)
+            // Map to grid coordinates (0 to N+1)
+            const x = ((e.clientX - rect.left) / rect.width) * width;
+            const y = ((e.clientY - rect.top) / rect.height) * height;
+            return { x, y };
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            const pos = getMousePos(e);
+            const mx = pos.x;
+            const my = pos.y;
+
+            const i = Math.floor(mx);
+            const j = Math.floor(my);
+
+            if (i >= 1 && i <= N && j >= 1 && j <= N) {
+                const idx = IX(i, j);
+                dens[idx] = 100; // Source density
+
+                const amtX = (mx - prevMouseX) * 5;
+                const amtY = (my - prevMouseY) * 5;
+
+                u[idx] += amtX;
+                v[idx] += amtY;
+            }
+
+            prevMouseX = mx;
+            prevMouseY = my;
+        });
+
+        // --- Helper: HSL to RGB ---
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s == 0) {
+                r = g = b = l; // achromatic
+            } else {
+                const hue2rgb = function hue2rgb(p, q, t) {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1 / 6) return p + (q - p) * 6 * t;
+                    if (t < 1 / 2) return q;
+                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                    return p;
+                }
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1 / 3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1 / 3);
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        // --- Main Loop ---
+        const dt = 0.1;
+        const diff = 0.00001;
+        const visc = 0.00001;
+
+        function loop() {
+            // Reset inputs
+            u_prev.fill(0);
+            v_prev.fill(0);
+            dens_prev.fill(0);
+
+            // Decay
+            for (let i = 0; i < size; i++) {
+                dens[i] *= 0.99;
+            }
+
+            vel_step(u, v, u_prev, v_prev, visc, dt);
+            dens_step(dens, dens_prev, u, v, diff, dt);
+
+            draw();
+
+            hue += 0.005; // Cycle slowly
+            if (hue > 1) hue -= 1;
+
+            requestAnimationFrame(loop);
+        }
+
+        function draw() {
+            // Update ImageData
+            // We iterate through the grid and set pixels
+
+            // Pre-calculate base color
+            // HSL to RGB
+            const [rBase, gBase, bBase] = hslToRgb(hue, 1.0, 0.5);
+
+            for (let j = 0; j < height; j++) {
+                for (let i = 0; i < width; i++) {
+                    const idx = IX(i, j);
+                    let d = dens[idx];
+
+                    // Clamp density
+                    if (d > 1) d = 1;
+                    if (d < 0) d = 0;
+
+                    const pIdx = (j * width + i) * 4;
+
+                    // Simple coloring: Base color * density
+                    // Or white smoke with tint?
+                    // Let's do colored smoke on black
+
+                    data[pIdx] = rBase * d;     // R
+                    data[pIdx + 1] = gBase * d; // G
+                    data[pIdx + 2] = bBase * d; // B
+                    data[pIdx + 3] = 255;       // Alpha (Opaque, we fade to black via RGB)
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        loop();
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Cloth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <div class="absolute bottom-4 left-4 z-50 text-xs text-gray-500 pointer-events-none">
+        Left Drag: Pull • Right Drag / Shift+Drag: Tear
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let points = [];
+        let constraints = [];
+
+        // Physics Settings
+        const gravity = 0.5;
+        const friction = 0.99;
+        const bounce = 0.9;
+        const spacing = 20;
+        const tearDist = 60; // Distance to tear
+        const stiffness = 5; // Solver iterations
+
+        // Mouse
+        let mouse = { x: 0, y: 0, px: 0, py: 0, down: false, button: 0 };
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initCloth();
+        }
+        window.addEventListener('resize', resize);
+
+        class Point {
+            constructor(x, y, pinned = false) {
+                this.x = x;
+                this.y = y;
+                this.oldx = x;
+                this.oldy = y;
+                this.pinned = pinned;
+            }
+
+            update() {
+                if (this.pinned) return;
+
+                const vx = (this.x - this.oldx) * friction;
+                const vy = (this.y - this.oldy) * friction;
+
+                this.oldx = this.x;
+                this.oldy = this.y;
+
+                this.x += vx;
+                this.y += vy + gravity;
+
+                // Floor collision (optional)
+                /*
+                if (this.y > height) {
+                    this.y = height;
+                    this.oldy = this.y + vy * bounce;
+                }
+                */
+            }
+        }
+
+        class Constraint {
+            constructor(p1, p2) {
+                this.p1 = p1;
+                this.p2 = p2;
+                this.length = spacing;
+            }
+
+            resolve() {
+                const dx = this.p2.x - this.p1.x;
+                const dy = this.p2.y - this.p1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist > tearDist) {
+                    // Tear logic handled in main loop by removing constraint
+                    return true; // Signal to remove
+                }
+
+                const diff = (this.length - dist) / dist;
+
+                // If one is pinned, move the other fully
+                // If both free, move both half
+
+                const moveX = dx * diff * 0.5;
+                const moveY = dy * diff * 0.5;
+
+                if (!this.p1.pinned && !this.p2.pinned) {
+                    this.p1.x -= moveX;
+                    this.p1.y -= moveY;
+                    this.p2.x += moveX;
+                    this.p2.y += moveY;
+                } else if (!this.p1.pinned) {
+                    this.p1.x -= moveX * 2;
+                    this.p1.y -= moveY * 2;
+                } else if (!this.p2.pinned) {
+                    this.p2.x += moveX * 2;
+                    this.p2.y += moveY * 2;
+                }
+
+                return false;
+            }
+
+            draw() {
+                ctx.moveTo(this.p1.x, this.p1.y);
+                ctx.lineTo(this.p2.x, this.p2.y);
+            }
+        }
+
+        function initCloth() {
+            points = [];
+            constraints = [];
+
+            const cols = 30;
+            const rows = 20;
+            const startX = (width - cols * spacing) / 2;
+            const startY = 50;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const p = new Point(startX + x * spacing, startY + y * spacing, y === 0); // Pin top row
+                    points.push(p);
+
+                    // Add constraints
+                    if (x > 0) {
+                        constraints.push(new Constraint(points[points.length - 2], p));
+                    }
+                    if (y > 0) {
+                        constraints.push(new Constraint(points[points.length - cols - 1], p));
+                    }
+                }
+            }
+        }
+
+        function update() {
+            // Update Points
+            for (let i = 0; i < points.length; i++) {
+                points[i].update();
+            }
+
+            // Mouse Interaction
+            if (mouse.down) {
+                if (mouse.button === 2 || mouse.shift) {
+                    // Tear (Cut)
+                    // Remove constraints that cross the mouse path
+                    // Simplified: Remove constraints near mouse
+                    for (let i = constraints.length - 1; i >= 0; i--) {
+                        const c = constraints[i];
+                        const dx = (c.p1.x + c.p2.x) / 2 - mouse.x;
+                        const dy = (c.p1.y + c.p2.y) / 2 - mouse.y;
+                        if (dx * dx + dy * dy < 400) { // 20px radius
+                            constraints.splice(i, 1);
+                        }
+                    }
+                } else {
+                    // Pull
+                    // Find nearest point
+                    let nearest = null;
+                    let minDist = 50;
+                    for (const p of points) {
+                        const dx = p.x - mouse.x;
+                        const dy = p.y - mouse.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearest = p;
+                        }
+                    }
+
+                    if (nearest) {
+                        // Move point towards mouse, but don't snap completely to keep physics
+                        // Or just set position to mouse (strong grip)
+                        // If we set oldx/oldy properly we can impart velocity
+                        const dx = mouse.x - mouse.px;
+                        const dy = mouse.y - mouse.py;
+
+                        nearest.px = nearest.x; // Save for velocity calc? No, Verlet uses oldx
+                        // To pull, we move the point.
+                        // But if it's pinned, we can't move it? 
+                        // Let's allow moving pinned points if grabbed? Or just free points.
+                        if (!nearest.pinned) {
+                            nearest.oldx = nearest.x - dx; // Impart mouse velocity
+                            nearest.oldy = nearest.y - dy;
+                            nearest.x = mouse.x;
+                            nearest.y = mouse.y;
+                        }
+                    }
+                }
+            }
+
+            // Resolve Constraints
+            for (let i = 0; i < stiffness; i++) {
+                for (let j = constraints.length - 1; j >= 0; j--) {
+                    const broken = constraints[j].resolve();
+                    if (broken) {
+                        constraints.splice(j, 1);
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw Constraints (Lines)
+            ctx.beginPath();
+            ctx.strokeStyle = '#00FFFF'; // Cyan
+            ctx.lineWidth = 1;
+            for (const c of constraints) {
+                // Color based on strain?
+                // Simple neon look
+                c.draw();
+            }
+            ctx.stroke();
+
+            // Draw Points (Dots)
+            ctx.fillStyle = 'white';
+            for (const p of points) {
+                // Only draw if not pinned? Or all?
+                // Draw small dots
+                // ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+            }
+
+            // Draw Pinned points
+            ctx.fillStyle = '#FF00FF'; // Pink
+            for (const p of points) {
+                if (p.pinned) {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            mouse.px = mouse.x;
+            mouse.py = mouse.y;
+            requestAnimationFrame(loop);
+        }
+
+        // Input Handling
+        canvas.addEventListener('mousedown', (e) => {
+            mouse.down = true;
+            mouse.button = e.button;
+            mouse.shift = e.shiftKey;
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        window.addEventListener('mouseup', () => {
+            mouse.down = false;
+        });
+
+        // Prevent context menu on right click
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        resize();
+        loop();
+
+    </script>
+</body>
+
+</html>

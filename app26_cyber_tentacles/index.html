@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Tentacles</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            cursor: none;
+            /* Hide default cursor */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #cursor-target {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00FF00;
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            box-shadow: 0 0 10px #00FF00;
+            transition: width 0.2s, height 0.2s, border-color 0.2s;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-green-400 hover:text-green-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-green-900/50 font-medium backdrop-blur-sm cursor-pointer">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <div id="cursor-target"></div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const cursorTarget = document.getElementById('cursor-target');
+
+        let width, height;
+        let tentacles = [];
+        let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let isMouseDown = false;
+
+        // Settings
+        const numTentacles = 6;
+        const numSegments = 40; // More segments for smoother look
+        const defaultSegmentLength = 10;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initTentacles();
+        }
+        window.addEventListener('resize', resize);
+
+        class Segment {
+            constructor(x, y, length, angle) {
+                this.x = x;
+                this.y = y;
+                this.length = length;
+                this.angle = angle;
+            }
+
+            calculateB(targetX, targetY) {
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                this.angle = Math.atan2(dy, dx);
+            }
+
+            update(targetX, targetY) {
+                this.calculateB(targetX, targetY);
+                this.x = targetX - Math.cos(this.angle) * this.length;
+                this.y = targetY - Math.sin(this.angle) * this.length;
+            }
+        }
+
+        class Tentacle {
+            constructor(x, y, index) {
+                this.baseX = x;
+                this.baseY = y;
+                this.index = index;
+                this.segments = [];
+
+                // Colors
+                this.hueBase = (index % 2 === 0) ? 270 : 140; // Purple or Green
+                this.hueTip = (index % 2 === 0) ? 320 : 100;  // Pink or Lime
+
+                // Init segments
+                for (let i = 0; i < numSegments; i++) {
+                    this.segments.push(new Segment(x, y - i * defaultSegmentLength, defaultSegmentLength, 0));
+                }
+            }
+
+            update(targetX, targetY) {
+                // Determine length based on state
+                // When clicked, recoil (shorten segments)
+                const targetLen = isMouseDown ? defaultSegmentLength * 0.4 : defaultSegmentLength;
+
+                // Smoothly interpolate current length
+                // We update the length property of segments directly
+                // Simple approach: just set it for now, or lerp if we stored currentLength
+
+                // Inverse Kinematics (Drag)
+                // Head is at segments[0]
+
+                this.segments[0].length = targetLen;
+                this.segments[0].update(targetX, targetY);
+
+                for (let i = 1; i < this.segments.length; i++) {
+                    this.segments[i].length = targetLen;
+                    this.segments[i].update(this.segments[i - 1].x, this.segments[i - 1].y);
+                }
+
+                // Anchor to base
+                // Shift all points so the last segment ends at baseX, baseY
+                const lastSeg = this.segments[this.segments.length - 1];
+                const deltaX = this.baseX - lastSeg.x;
+                const deltaY = this.baseY - lastSeg.y;
+
+                for (let i = 0; i < this.segments.length; i++) {
+                    this.segments[i].x += deltaX;
+                    this.segments[i].y += deltaY;
+                }
+            }
+
+            draw() {
+                // Draw mechanical segments
+                for (let i = this.segments.length - 1; i >= 0; i--) {
+                    const s = this.segments[i];
+
+                    // Gradient Color
+                    const t = (this.segments.length - 1 - i) / (this.segments.length - 1);
+                    const hue = this.hueBase + (this.hueTip - this.hueBase) * t;
+                    const light = 15 + t * 50;
+
+                    ctx.save();
+                    ctx.translate(s.x, s.y);
+                    ctx.rotate(s.angle);
+
+                    // Draw Segment Body (Mechanical Link)
+                    ctx.fillStyle = `hsla(${hue}, 100%, ${light}%, 0.8)`;
+                    ctx.strokeStyle = `hsla(${hue}, 100%, ${light + 20}%, 1)`;
+
+                    // Tapered width
+                    const w = (i * 0.4) + 2;
+                    const len = s.length;
+
+                    // Draw a "bone" shape
+                    ctx.beginPath();
+                    ctx.roundRect(0, -w / 2, len, w, w / 2);
+                    ctx.fill();
+                    // ctx.stroke();
+
+                    // Draw Joint (Circle at start)
+                    ctx.fillStyle = '#111';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, w * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Glowing center of joint
+                    ctx.fillStyle = `hsla(${hue}, 100%, 80%, 1)`;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, w * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+            }
+        }
+
+        function initTentacles() {
+            tentacles = [];
+            const spacing = width / (numTentacles + 1);
+
+            for (let i = 0; i < numTentacles; i++) {
+                const x = spacing * (i + 1);
+                const y = height + 50; // Rooted below screen
+                tentacles.push(new Tentacle(x, y, i));
+            }
+        }
+
+        // Animation Loop
+        let time = 0;
+        function loop() {
+            // Clear with slight trail? No, clean clear for mechanical look
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            time += 0.05;
+
+            // Update Cursor
+            cursorTarget.style.left = mouse.x + 'px';
+            cursorTarget.style.top = mouse.y + 'px';
+            if (isMouseDown) {
+                cursorTarget.style.width = '40px';
+                cursorTarget.style.height = '40px';
+                cursorTarget.style.borderColor = '#FF0055';
+                cursorTarget.style.boxShadow = '0 0 20px #FF0055';
+            } else {
+                cursorTarget.style.width = '20px';
+                cursorTarget.style.height = '20px';
+                cursorTarget.style.borderColor = '#00FF00';
+                cursorTarget.style.boxShadow = '0 0 10px #00FF00';
+            }
+
+            tentacles.forEach((t, i) => {
+                // Individual personality/noise
+                // Offset target based on index so they don't overlap perfectly
+                const offsetX = Math.sin(time * 0.5 + i) * 100;
+                const offsetY = Math.cos(time * 0.3 + i * 2) * 50;
+
+                // If mouse is far, they sway more. If close, they focus.
+                // Let's just add the noise to the mouse position
+                let tx = mouse.x + offsetX;
+                let ty = mouse.y + offsetY - 50; // Aim slightly above mouse
+
+                // If clicked, they recoil AWAY from mouse? Or just shrink?
+                // Requirement said "shrink/recoil". We implemented shrinking segments.
+                // Let's also add a "shock" retreat
+                if (isMouseDown) {
+                    // Move target towards base
+                    tx = t.baseX + (tx - t.baseX) * 0.2;
+                    ty = t.baseY + (ty - t.baseY) * 0.2;
+                }
+
+                t.update(tx, ty);
+                t.draw();
+            });
+
+            requestAnimationFrame(loop);
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        window.addEventListener('mousedown', () => isMouseDown = true);
+        window.addEventListener('mouseup', () => isMouseDown = false);
+
+        // Touch support
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        }, { passive: false });
+        window.addEventListener('touchstart', (e) => {
+            isMouseDown = true;
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        });
+        window.addEventListener('touchend', () => isMouseDown = false);
+
+        initTentacles(); // Ensure init
+        resize();
+        loop();
+
+    </script>
+</body>
+
+</html>

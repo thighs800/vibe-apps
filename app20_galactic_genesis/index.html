@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic Genesis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Status -->
+    <div class="absolute top-4 right-4 z-50 text-right pointer-events-none select-none">
+        <div class="text-xs text-gray-500 font-mono tracking-widest">PARTICLES</div>
+        <div class="text-2xl font-bold text-cyan-500" id="particle-count">0</div>
+        <div class="text-[10px] text-gray-400 mt-2 tracking-wide">SPACE: Reset Galaxy • CLICK: Big Bang</div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const particleCountEl = document.getElementById('particle-count');
+
+        let width, height;
+        let particles = [];
+        const numParticles = 2500; // Adjusted for performance with gradients
+
+        // Physics Constants
+        const G = 0.8; // Gravitational constant
+        const friction = 0.995; // Low friction for sustained orbits
+        const mouseMass = 3000; // Mass of the black hole
+        const repulsionStrength = 50; // Big Bang strength
+
+        // Mouse State
+        let mouseX = window.innerWidth / 2;
+        let mouseY = window.innerHeight / 2;
+        let isMouseDown = false;
+
+        // Pre-rendered glow texture for performance
+        const glowCanvas = document.createElement('canvas');
+        const glowCtx = glowCanvas.getContext('2d');
+        const glowSize = 32;
+        glowCanvas.width = glowSize;
+        glowCanvas.height = glowSize;
+
+        const grad = glowCtx.createRadialGradient(glowSize / 2, glowSize / 2, 0, glowSize / 2, glowSize / 2, glowSize / 2);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        glowCtx.fillStyle = grad;
+        glowCtx.fillRect(0, 0, glowSize, glowSize);
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            // If resized, keep galaxy center at mouse or recenter mouse?
+            // Let's just update bounds.
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                // Initialize around the CURRENT mouse position (Black Hole)
+                const centerX = mouseX;
+                const centerY = mouseY;
+
+                // Spiral Galaxy Distribution
+                // Using multiple arms for more structure
+                const arms = 3;
+                const armIndex = Math.floor(Math.random() * arms);
+                const randomOffset = Math.random() * 0.5; // Spread within arm
+
+                // Distance from center (exponential distribution for dense core)
+                const dist = Math.pow(Math.random(), 2) * (Math.min(width, height) * 0.4) + 20;
+
+                // Angle based on distance (spiral shape)
+                const spiralAngle = dist * 0.01 + (armIndex * (Math.PI * 2 / arms));
+                const angle = spiralAngle + (Math.random() - 0.5) * 0.5; // Scatter
+
+                this.x = centerX + Math.cos(angle) * dist;
+                this.y = centerY + Math.sin(angle) * dist;
+
+                // Orbital Velocity
+                // v = sqrt(G * M / r)
+                const v = Math.sqrt(G * mouseMass / dist);
+
+                // Velocity vector perpendicular to radius (tangent)
+                // Tangent angle = angle + PI/2
+                this.vx = -Math.sin(angle) * v;
+                this.vy = Math.cos(angle) * v;
+
+                // Add some randomness to velocity
+                this.vx += (Math.random() - 0.5) * 0.5;
+                this.vy += (Math.random() - 0.5) * 0.5;
+
+                this.size = Math.random() * 2 + 0.5; // Visual size scale
+
+                // Base color (will be modified by speed)
+                this.baseHue = Math.random() * 60 + 200; // Blue to Purple range
+            }
+
+            update() {
+                const dx = mouseX - this.x;
+                const dy = mouseY - this.y;
+                const distSq = dx * dx + dy * dy;
+                const dist = Math.sqrt(distSq);
+
+                // Gravity
+                // Softening parameter to avoid singularity at center
+                const force = (G * mouseMass) / (distSq + 1000);
+
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                if (isMouseDown) {
+                    // Big Bang: Strong Repulsion
+                    // Force inversely proportional to distance (explosive)
+                    const repulse = repulsionStrength / (dist + 10);
+                    this.vx -= (dx / dist) * repulse;
+                    this.vy -= (dy / dist) * repulse;
+                } else {
+                    this.vx += fx;
+                    this.vy += fy;
+                }
+
+                this.vx *= friction;
+                this.vy *= friction;
+
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+
+                // Dynamic Color
+                // Fast = Hot (White/Yellow/Red), Slow = Cold (Blue/Purple)
+                // Speed range typically 0 to 10
+                let hue, sat, light;
+
+                if (speed > 8) {
+                    hue = 60; // Yellow
+                    sat = 100;
+                    light = 80;
+                } else if (speed > 5) {
+                    hue = 0; // Red
+                    sat = 80;
+                    light = 60;
+                } else {
+                    hue = 220 - (speed * 10); // Blueish
+                    sat = 80;
+                    light = 50 + speed * 5;
+                }
+
+                // Draw using the pre-rendered glow
+                // We tint it by drawing a colored circle on top or just using globalCompositeOperation 'lighter'
+                // Since we can't easily tint an image in Canvas 2D without extra steps, 
+                // let's use the 'lighter' blend mode to mix colors naturally.
+
+                // Actually, drawing 3000 images might be slow.
+                // Let's try drawing simple arcs with shadowBlur for glow? No, shadowBlur is very slow.
+                // Let's stick to simple arcs but with 'lighter' blend mode, it creates a glow effect when they overlap.
+
+                ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, 0.8)`;
+
+                // Draw star
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Optional: Draw glow image for larger/brighter stars only?
+                // Or just rely on 'lighter' overlap which looks like a nebula.
+            }
+        }
+
+        function init() {
+            particles = [];
+            for (let i = 0; i < numParticles; i++) {
+                particles.push(new Particle());
+            }
+            particleCountEl.innerText = numParticles.toLocaleString();
+        }
+
+        function animate() {
+            // Clear with slight fade for trails?
+            // "Lighter" mode works best on black.
+            // If we want trails, we fill with low-opacity black.
+            // But "lighter" doesn't work well with trails unless we clear.
+            // Let's do a hard clear for crispness, or very subtle trail.
+
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Trails
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.globalCompositeOperation = 'lighter';
+
+            for (let p of particles) {
+                p.update();
+                p.draw();
+            }
+
+            // Draw Black Hole marker
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, 5, 0, Math.PI * 2);
+            ctx.fillStyle = 'black';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.stroke();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Interaction
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('mousedown', () => isMouseDown = true);
+        window.addEventListener('mouseup', () => isMouseDown = false);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                particles.forEach(p => p.reset());
+            }
+        });
+
+        // Touch support
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isMouseDown = true;
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => isMouseDown = false);
+
+        init();
+        animate();
+
+    </script>
+</body>
+
+</html>

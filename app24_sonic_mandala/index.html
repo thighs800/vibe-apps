@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonic Mandala</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-purple-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- Start Overlay -->
+    <div id="overlay"
+        class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm transition-opacity duration-500">
+        <div class="text-center space-y-6">
+            <h1
+                class="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-500 to-red-500">
+                SONIC MANDALA
+            </h1>
+            <p class="text-gray-400 max-w-md mx-auto">
+                This experience requires microphone access to visualize sound.<br>
+                Please allow access and click Start.
+            </p>
+            <button id="start-btn"
+                class="px-8 py-3 bg-white text-black font-bold rounded-full hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.5)]">
+                START VISUALIZER
+            </button>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('start-btn');
+
+        let width, height;
+        let audioCtx, analyser, source;
+        let dataArray;
+        let isRunning = false;
+        let rotation = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        async function initAudio() {
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 4096; // Higher resolution for smoother curves
+                analyser.smoothingTimeConstant = 0.85;
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                isRunning = true;
+                overlay.classList.add('opacity-0', 'pointer-events-none');
+                animate();
+            } catch (err) {
+                console.error("Audio Init Error:", err);
+                alert("Microphone access denied or error occurred.");
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            initAudio();
+        });
+
+        function animate() {
+            if (!isRunning) return;
+
+            requestAnimationFrame(animate);
+
+            analyser.getByteFrequencyData(dataArray);
+
+            // Bass Detection (Low frequencies)
+            let bassSum = 0;
+            const bassRange = 20; // Check first 20 bins
+            for (let i = 0; i < bassRange; i++) {
+                bassSum += dataArray[i];
+            }
+            const bassAvg = bassSum / bassRange;
+            const bassNorm = bassAvg / 255;
+            const bassScale = 1 + bassNorm * 0.15; // Zoom effect
+
+            // Dynamic Background Fade
+            // Brighter flash on bass hit
+            const fadeAlpha = 0.15 + (bassNorm * 0.1);
+            ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+            ctx.fillRect(0, 0, width, height);
+
+            const cx = width / 2;
+            const cy = height / 2;
+            const maxRadius = Math.min(width, height) * 0.45;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(bassScale, bassScale);
+
+            // Rotate entire mandala
+            rotation += 0.002 + (bassNorm * 0.005);
+            ctx.rotate(rotation);
+
+            const symmetry = 12; // 12-fold symmetry for complex mandala
+            const angleStep = (Math.PI * 2) / symmetry;
+
+            // Draw Mandala Segments
+            for (let s = 0; s < symmetry; s++) {
+                ctx.save();
+                ctx.rotate(s * angleStep);
+
+                // We will draw a connected path for the frequencies
+                // Mapping frequency index to radius
+
+                const dataPoints = 120; // How many points along the radius
+                const step = 2; // FFT bin step
+
+                ctx.beginPath();
+
+                // Draw outward curve
+                for (let i = 0; i < dataPoints; i++) {
+                    const val = dataArray[i * step];
+                    const percent = val / 255;
+
+                    const r = (i / dataPoints) * maxRadius;
+                    // Angle deviation based on volume
+                    // Creates the "flower petal" shape
+                    const theta = (percent * 0.5) * (Math.PI / symmetry);
+
+                    const x = Math.cos(theta) * r;
+                    const y = Math.sin(theta) * r;
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+
+                // Draw return curve (mirror) to close the petal
+                for (let i = dataPoints - 1; i >= 0; i--) {
+                    const val = dataArray[i * step];
+                    const percent = val / 255;
+
+                    const r = (i / dataPoints) * maxRadius;
+                    const theta = (percent * 0.5) * (Math.PI / symmetry);
+
+                    // Mirror Y
+                    const x = Math.cos(-theta) * r;
+                    const y = Math.sin(-theta) * r;
+
+                    ctx.lineTo(x, y);
+                }
+
+                ctx.closePath();
+
+                // Color based on segment index and bass
+                // Cycling hue
+                const hue = (s * 30) + (bassAvg * 0.5) + (Date.now() * 0.05);
+                ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.8)`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Fill with low opacity
+                ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.1)`;
+                ctx.fill();
+
+                // Draw outer dots for high frequencies
+                const highFreqVal = dataArray[(dataPoints + 20) * step];
+                if (highFreqVal > 100) {
+                    const r = maxRadius + (highFreqVal / 255) * 50;
+                    ctx.fillStyle = `hsla(${hue + 180}, 100%, 80%, 0.8)`;
+                    ctx.beginPath();
+                    ctx.arc(r, 0, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+
+            // Center Core
+            const coreRadius = 10 + bassAvg * 0.2;
+            const coreHue = (Date.now() * 0.1) % 360;
+
+            // Glow
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, coreRadius * 2);
+            gradient.addColorStop(0, `hsla(${coreHue}, 100%, 70%, 1)`);
+            gradient.addColorStop(1, `hsla(${coreHue}, 100%, 50%, 0)`);
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, coreRadius * 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Turing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            image-rendering: pixelated;
+            filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.4));
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div
+        class="absolute bottom-4 left-4 z-50 bg-black/70 backdrop-blur-md p-4 rounded-lg border border-gray-800 select-none pointer-events-none">
+        <div class="text-xs text-gray-400 mb-2 font-bold tracking-wider">GRAY-SCOTT MODEL</div>
+        <div class="font-mono text-sm space-y-2">
+            <div class="flex justify-between gap-8 items-center">
+                <span class="text-purple-400 font-bold">FEED (f)</span>
+                <span id="val-f"
+                    class="text-white bg-purple-900/30 px-2 py-0.5 rounded border border-purple-500/30">0.0545</span>
+            </div>
+            <div class="flex justify-between gap-8 items-center">
+                <span class="text-cyan-400 font-bold">KILL (k)</span>
+                <span id="val-k"
+                    class="text-white bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-500/30">0.0620</span>
+            </div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-gray-800 text-[10px] text-gray-500 flex justify-between gap-4">
+            <span>Drag: Seed Chemical</span>
+            <span>Click: Mutate DNA</span>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const valF = document.getElementById('val-f');
+        const valK = document.getElementById('val-k');
+
+        // Simulation Settings
+        const width = 200;
+        const height = 200;
+        canvas.width = width;
+        canvas.height = height;
+
+        // Gray-Scott Parameters
+        // Start with "Coral"
+        let f = 0.0545;
+        let k = 0.0620;
+
+        const da = 1.0;
+        const db = 0.5;
+        const dt = 1.0;
+
+        // Grids
+        let gridA = new Float32Array(width * height).fill(1.0);
+        let gridB = new Float32Array(width * height).fill(0.0);
+        let nextA = new Float32Array(width * height);
+        let nextB = new Float32Array(width * height);
+
+        // Rendering Buffer
+        const imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+
+        function seed(cx, cy, r) {
+            const r2 = r * r;
+            for (let y = cy - r; y < cy + r; y++) {
+                for (let x = cx - r; x < cx + r; x++) {
+                    if ((x - cx) ** 2 + (y - cy) ** 2 < r2) {
+                        if (x >= 0 && x < width && y >= 0 && y < height) {
+                            const idx = y * width + x;
+                            gridB[idx] = 1.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Initial Seed
+        seed(Math.floor(width / 2), Math.floor(height / 2), 10);
+
+        function update() {
+            for (let y = 1; y < height - 1; y++) {
+                const yw = y * width;
+                for (let x = 1; x < width - 1; x++) {
+                    const i = yw + x;
+
+                    const a = gridA[i];
+                    const b = gridB[i];
+
+                    // Laplacian
+                    const i_u = i - width;
+                    const i_d = i + width;
+                    const i_l = i - 1;
+                    const i_r = i + 1;
+
+                    const i_ul = i_u - 1;
+                    const i_ur = i_u + 1;
+                    const i_dl = i_d - 1;
+                    const i_dr = i_d + 1;
+
+                    const sumA =
+                        (gridA[i_u] + gridA[i_d] + gridA[i_l] + gridA[i_r]) * 0.2 +
+                        (gridA[i_ul] + gridA[i_ur] + gridA[i_dl] + gridA[i_dr]) * 0.05;
+
+                    const sumB =
+                        (gridB[i_u] + gridB[i_d] + gridB[i_l] + gridB[i_r]) * 0.2 +
+                        (gridB[i_ul] + gridB[i_ur] + gridB[i_dl] + gridB[i_dr]) * 0.05;
+
+                    const lapA = sumA - a;
+                    const lapB = sumB - b;
+
+                    const abb = a * b * b;
+
+                    let na = a + (da * lapA - abb + f * (1 - a)) * dt;
+                    let nb = b + (db * lapB + abb - (k + f) * b) * dt;
+
+                    if (na < 0) na = 0; else if (na > 1) na = 1;
+                    if (nb < 0) nb = 0; else if (nb > 1) nb = 1;
+
+                    nextA[i] = na;
+                    nextB[i] = nb;
+                }
+            }
+
+            let temp = gridA; gridA = nextA; nextA = temp;
+            temp = gridB; gridB = nextB; nextB = temp;
+        }
+
+        function draw() {
+            for (let i = 0; i < width * height; i++) {
+                const b = gridB[i];
+                const idx = i * 4;
+
+                // Enhanced Neon Gradient
+                // 0.0 - 0.2: Black -> Deep Purple
+                // 0.2 - 0.4: Deep Purple -> Bright Purple
+                // 0.4 - 0.6: Bright Purple -> Cyan
+                // 0.6 - 1.0: Cyan -> White
+
+                let val = b * 2.5;
+                if (val > 1) val = 1;
+
+                let r, g, blue;
+
+                if (val < 0.2) {
+                    const t = val / 0.2;
+                    r = t * 80;
+                    g = 0;
+                    blue = t * 160;
+                } else if (val < 0.4) {
+                    const t = (val - 0.2) / 0.2;
+                    r = 80 + t * 100; // 80 -> 180
+                    g = 0;
+                    blue = 160 + t * 95; // 160 -> 255
+                } else if (val < 0.6) {
+                    const t = (val - 0.4) / 0.2;
+                    r = 180 * (1 - t); // 180 -> 0
+                    g = t * 255;
+                    blue = 255;
+                } else {
+                    const t = (val - 0.6) / 0.4;
+                    r = t * 255;
+                    g = 255;
+                    blue = 255;
+                }
+
+                data[idx] = r;
+                data[idx + 1] = g;
+                data[idx + 2] = blue;
+                data[idx + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function loop() {
+            for (let i = 0; i < 10; i++) update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Interaction
+        let isMouseDown = false;
+        let startX, startY;
+        let isDragging = false;
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor(((e.clientX - rect.left) / rect.width) * width);
+            const y = Math.floor(((e.clientY - rect.top) / rect.height) * height);
+            return { x, y };
+        }
+
+        function mutate() {
+            // Constrained Randomization
+            // Interesting regions:
+            // f: 0.01 - 0.06
+            // k: 0.045 - 0.07
+
+            f += (Math.random() - 0.5) * 0.005;
+            k += (Math.random() - 0.5) * 0.005;
+
+            f = Math.max(0.01, Math.min(0.06, f));
+            k = Math.max(0.045, Math.min(0.07, k));
+
+            valF.innerText = f.toFixed(4);
+            valK.innerText = k.toFixed(4);
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            isDragging = false;
+            startX = e.clientX;
+            startY = e.clientY;
+
+            const pos = getPos(e);
+            seed(pos.x, pos.y, 5);
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            isMouseDown = false;
+            // If we didn't drag much, treat as click -> mutate
+            if (!isDragging) {
+                mutate();
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isMouseDown) {
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                if (dx * dx + dy * dy > 25) { // Moved more than 5px
+                    isDragging = true;
+                }
+
+                const pos = getPos(e);
+                seed(pos.x, pos.y, 3);
+            }
+        });
+
+        // Touch
+        canvas.addEventListener('touchstart', (e) => {
+            isMouseDown = true;
+            isDragging = false;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+
+            const pos = getPos(e.touches[0]);
+            seed(pos.x, pos.y, 5);
+        });
+        window.addEventListener('touchmove', (e) => {
+            if (isMouseDown) {
+                isDragging = true;
+                const pos = getPos(e.touches[0]);
+                seed(pos.x, pos.y, 3);
+            }
+        });
+        window.addEventListener('touchend', () => {
+            isMouseDown = false;
+            if (!isDragging) mutate();
+        });
+
+        loop();
+
+    </script>
+</body>
+
+</html>
