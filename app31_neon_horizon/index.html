@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Horizon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a0b2e;
+            /* Dark Purple */
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-fuchsia-400 hover:text-fuchsia-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-fuchsia-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-fuchsia-900/50">
+            <div class="text-xs text-fuchsia-300 mb-1 font-bold tracking-wider">SYNTHWAVE ENGINE</div>
+            <div class="text-[10px] text-gray-400">
+                Mouse X: Pan Camera<br>
+                Mouse Y: Speed Control
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+
+        // Camera / View
+        let fov = 300;
+        let viewDist = 100;
+        let cameraX = 0;
+        let cameraY = 150; // Height
+        let cameraZ = 0;
+        let speed = 20;
+
+        // Grid Settings
+        const gridWidth = 6000;
+        const gridDepth = 3000; // Draw distance
+        const segmentSize = 100;
+
+        // Mouse
+        let mouseX = 0;
+        let mouseY = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            fov = width * 0.8;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function project(x, y, z) {
+            const scale = fov / (viewDist + z);
+            const x2d = (x * scale) + width / 2;
+            const y2d = (y * scale) + height / 2;
+            return { x: x2d, y: y2d, scale: scale };
+        }
+
+        function drawSky() {
+            // Gradient Sky
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#0f0518');
+            gradient.addColorStop(0.4, '#2d1b4e');
+            gradient.addColorStop(1, '#5b247a');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Sun
+            const sunY = height * 0.35;
+            const sunSize = Math.min(width, height) * 0.25;
+
+            const sunGrad = ctx.createLinearGradient(0, sunY - sunSize, 0, sunY + sunSize);
+            sunGrad.addColorStop(0, '#ffff00');
+            sunGrad.addColorStop(0.5, '#ff0055');
+            sunGrad.addColorStop(1, '#9900ff');
+
+            ctx.save();
+            ctx.shadowBlur = 50;
+            ctx.shadowColor = '#ff0055';
+            ctx.fillStyle = sunGrad;
+            ctx.beginPath();
+            ctx.arc(width / 2, sunY, sunSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Sun Stripes (Blinds)
+            // Draw dark rectangles that get thicker towards bottom
+            ctx.fillStyle = 'rgba(26, 11, 46, 0.8)'; // Semi-transparent dark purple
+
+            const numStripes = 8;
+            for (let i = 0; i < numStripes; i++) {
+                const progress = i / numStripes;
+                const y = sunY + (progress * sunSize * 0.8); // Start from middle-ish
+                const h = sunSize * 0.02 + (progress * sunSize * 0.1); // Get thicker
+
+                if (y > sunY + sunSize) break;
+
+                // Only draw in bottom half
+                if (y > sunY) {
+                    ctx.fillRect(width / 2 - sunSize - 10, y, sunSize * 2 + 20, h);
+                }
+            }
+        }
+
+        function drawTerrain() {
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00ffff';
+
+            // Draw Vertical Lines (Longitudinal)
+            const numLinesX = 50;
+            const spacingX = gridWidth / numLinesX;
+
+            for (let i = -numLinesX / 2; i <= numLinesX / 2; i++) {
+                const worldX = i * spacingX;
+
+                ctx.beginPath();
+                let firstPoint = true;
+
+                // Draw segments along Z
+                // We draw from near to far
+                for (let z = viewDist; z < gridDepth; z += segmentSize) {
+                    const worldZ = z + cameraZ;
+
+                    // Height map
+                    // Valley + Rolling Hills
+                    const valley = Math.pow(Math.abs(worldX) / 1000, 2.5) * 300;
+                    const noise = Math.sin(worldX * 0.005) * Math.cos(worldZ * 0.005) * 80;
+                    const hillY = valley + noise;
+
+                    const relX = worldX - cameraX;
+                    const relY = 150 - hillY; // Camera height offset
+
+                    const p = project(relX, relY, z);
+
+                    if (firstPoint) {
+                        ctx.moveTo(p.x, p.y);
+                        firstPoint = false;
+                    } else {
+                        ctx.lineTo(p.x, p.y);
+                    }
+                }
+
+                // Distance Fog for Lines
+                // We can't easily gradient a path stroke in Canvas 2D without a gradient object
+                // But since vertical lines recede, we can set a single color that fades?
+                // No, the whole line recedes.
+                // Let's use a gradient for the stroke if possible, or just a solid color
+                // A vertical gradient might work since lines go up/down? No they go into Z.
+                // Let's just use a solid color for now, maybe slightly transparent
+
+                // To do proper fog, we'd need to draw segments individually or use a gradient.
+                // Let's use a LinearGradient from bottom of screen to top?
+                // The lines converge to the center.
+
+                const grad = ctx.createLinearGradient(0, height, 0, height / 2);
+                grad.addColorStop(0, 'rgba(255, 0, 255, 1)'); // Pink/Magenta near
+                grad.addColorStop(1, 'rgba(255, 0, 255, 0)'); // Fade out far
+
+                ctx.strokeStyle = grad;
+                ctx.stroke();
+            }
+
+            // Draw Horizontal Lines (Latitudinal)
+            // These move towards camera
+            const firstLineZ = Math.floor((cameraZ + viewDist) / segmentSize) * segmentSize;
+
+            for (let z = firstLineZ; z < cameraZ + gridDepth; z += segmentSize) {
+                const relZ = z - cameraZ;
+                if (relZ < viewDist) continue;
+
+                // Fog Alpha based on distance
+                const alpha = 1 - (relZ / gridDepth);
+                if (alpha <= 0) continue;
+
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`; // Cyan
+
+                let firstPoint = true;
+
+                for (let i = -numLinesX / 2; i <= numLinesX / 2; i++) {
+                    const worldX = i * spacingX;
+                    const worldZ = z;
+
+                    const valley = Math.pow(Math.abs(worldX) / 1000, 2.5) * 300;
+                    const noise = Math.sin(worldX * 0.005) * Math.cos(worldZ * 0.005) * 80;
+                    const hillY = valley + noise;
+
+                    const relX = worldX - cameraX;
+                    const p = project(relX, 150 - hillY, relZ);
+
+                    if (firstPoint) {
+                        ctx.moveTo(p.x, p.y);
+                        firstPoint = false;
+                    } else {
+                        ctx.lineTo(p.x, p.y);
+                    }
+                }
+                ctx.stroke();
+            }
+        }
+
+        function loop() {
+            // Speed Control
+            // Mouse Y: Top = Fast, Bottom = Slow
+            const speedFactor = 1 - (mouseY / height);
+            speed = 10 + speedFactor * 80;
+
+            cameraZ += speed;
+
+            // Camera Pan
+            const targetCamX = (mouseX - width / 2) * 4;
+            cameraX += (targetCamX - cameraX) * 0.05;
+
+            // Draw
+            drawSky();
+
+            // Ground Glow (under grid)
+            // ctx.shadowBlur = 20;
+            // ctx.shadowColor = '#ff00ff';
+
+            drawTerrain();
+
+            ctx.shadowBlur = 0;
+
+            requestAnimationFrame(loop);
+        }
+
+        // Input
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+
+        // Initial Mouse pos center
+        mouseX = window.innerWidth / 2;
+        mouseY = window.innerHeight / 2;
+
+        loop();
+
+    </script>
+</body>
+
+</html>

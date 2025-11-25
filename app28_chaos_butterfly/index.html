@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Butterfly</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+            /* Cheap but effective neon glow */
+            filter: drop-shadow(0 0 8px rgba(255, 0, 255, 0.5));
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-pink-400 hover:text-pink-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-pink-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/70 backdrop-blur-md p-4 rounded-lg border border-gray-800">
+            <div class="text-xs text-gray-400 mb-2 font-bold tracking-wider">LORENZ ATTRACTOR</div>
+            <div class="font-mono text-sm space-y-1 text-gray-300">
+                <div>σ (Sigma): <span class="text-pink-400">10.0</span></div>
+                <div>ρ (Rho): <span id="val-rho" class="text-blue-400">28.0</span></div>
+                <div>β (Beta): <span class="text-purple-400">8/3</span></div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-gray-800 text-[10px] text-gray-500">
+                Click to Perturb • Move to Rotate
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const valRho = document.getElementById('val-rho');
+
+        let width, height;
+
+        // Lorenz Parameters
+        const sigma = 10;
+        let rho = 28;
+        const beta = 8 / 3;
+        const dt = 0.01;
+
+        // State
+        let x = 0.1;
+        let y = 0;
+        let z = 0;
+
+        // Trail
+        const maxPoints = 2500;
+        const points = [];
+
+        // Camera / View
+        let angleY = 0;
+        let angleX = 0;
+        let scale = 15;
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetAngleX = 0;
+        let targetSpeedY = 0.005;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function update() {
+            // Lorenz Equations
+            const dx = (sigma * (y - x)) * dt;
+            const dy = (x * (rho - z) - y) * dt;
+            const dz = (x * y - beta * z) * dt;
+
+            x += dx;
+            y += dy;
+            z += dz;
+
+            // Calculate velocity for color
+            const velocity = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            // Add to trail
+            points.push({
+                x, y, z,
+                vel: velocity
+            });
+
+            if (points.length > maxPoints) {
+                points.shift();
+            }
+
+            // Smooth Rotation Control
+            // Mouse X controls rotation speed
+            // Mouse Y controls pitch (angleX)
+
+            // Normalize mouse input (-1 to 1)
+            const mx = (mouseX / width) * 2 - 1;
+            const my = (mouseY / height) * 2 - 1;
+
+            // Target values
+            const speedY = 0.005 + (mx * 0.02); // Base speed + mouse influence
+            targetAngleX = my * Math.PI * 0.5; // +/- 90 degrees
+
+            // Lerp for smoothness
+            angleY += speedY;
+            angleX += (targetAngleX - angleX) * 0.05;
+        }
+
+        function project(p) {
+            // 3D Rotation
+            // Rotate around Y
+            const cy = Math.cos(angleY);
+            const sy = Math.sin(angleY);
+            let x1 = p.x * cy - p.z * sy;
+            let z1 = p.x * sy + p.z * cy;
+            let y1 = p.y;
+
+            // Rotate around X
+            const cx = Math.cos(angleX);
+            const sx = Math.sin(angleX);
+            let y2 = y1 * cx - z1 * sx;
+            let z2 = y1 * sx + z1 * cx;
+            let x2 = x1;
+
+            // Perspective Projection
+            // Shift Z so the attractor is in front of camera
+            // Lorenz Z is roughly 0 to 50. Center is around 25.
+            const zOffset = z2 - 25;
+            const cameraDist = 80;
+
+            const factor = scale * (cameraDist / (cameraDist - zOffset));
+
+            return {
+                x: width / 2 + x2 * factor,
+                y: height / 2 + y2 * factor,
+                scale: factor
+            };
+        }
+
+        function draw() {
+            // Clear with slight fade? No, standard clear for crisp lines
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            if (points.length < 2) return;
+
+            ctx.lineWidth = 1.5;
+
+            let prev2D = null;
+
+            // Draw segments
+            // To optimize, we could batch, but for <3000 points direct drawing is fine
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                const p2d = project(p);
+
+                if (i > 0 && prev2D) {
+                    ctx.beginPath();
+                    ctx.moveTo(prev2D.x, prev2D.y);
+                    ctx.lineTo(p2d.x, p2d.y);
+
+                    // Color Logic
+                    // Requirement: Red -> Purple -> Blue
+                    // We can map this to the point index (time along the trail)
+                    // Tail (old) = Blue/Purple, Head (new) = Red/Orange?
+                    // Or cycle?
+                    // Let's do a gradient along the trail length.
+
+                    const t = i / points.length; // 0 (tail) to 1 (head)
+
+                    // Hue: 240 (Blue) -> 300 (Purple) -> 360/0 (Red) -> 60 (Yellow)
+                    // Let's go from Blue (240) to Red (360) to Yellow (60)
+                    // Map 0..1 to 240..420
+                    const hue = 240 + (t * 180);
+
+                    // Lightness/Alpha fade at tail
+                    const alpha = t;
+                    const light = 50 + (p.vel * 10); // Brighter when moving fast
+
+                    ctx.strokeStyle = `hsla(${hue % 360}, 100%, ${light}%, ${alpha})`;
+                    ctx.stroke();
+                }
+                prev2D = p2d;
+            }
+
+            // Draw Head
+            if (prev2D) {
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(prev2D.x, prev2D.y, 2 + (prev2D.scale * 0.1), 0, Math.PI * 2);
+                ctx.fill();
+
+                // Extra spark
+                ctx.fillStyle = `hsla(${(240 + 180) % 360}, 100%, 80%, 1)`;
+                ctx.beginPath();
+                ctx.arc(prev2D.x, prev2D.y, 1 + (prev2D.scale * 0.05), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function loop() {
+            // Multiple updates for speed
+            for (let i = 0; i < 4; i++) update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Interaction
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('mousedown', () => {
+            // Perturb parameters slightly
+            rho = 28 + (Math.random() - 0.5) * 15;
+            valRho.innerText = rho.toFixed(1);
+
+            // Jump position to restart chaos
+            x += (Math.random() - 0.5) * 10;
+            y += (Math.random() - 0.5) * 10;
+            z += (Math.random() - 0.5) * 10;
+
+            // Clear trail for clean break?
+            // points.length = 0; // Optional: clear trail
+        });
+
+        // Touch support
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchstart', (e) => {
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+            // Trigger perturb
+            rho = 28 + (Math.random() - 0.5) * 15;
+            valRho.innerText = rho.toFixed(1);
+        });
+
+        loop();
+
+    </script>
+</body>
+
+</html>

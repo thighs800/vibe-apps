@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golden Spiral</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #FBBF24;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px #FBBF24;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #333;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-yellow-400 hover:text-yellow-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-yellow-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4">
+        <div class="bg-black/80 backdrop-blur-md p-6 rounded-2xl border border-gray-800 shadow-2xl">
+            <div class="flex justify-between items-end mb-4">
+                <div>
+                    <h2 class="text-xs text-gray-400 font-bold tracking-wider mb-1">PHYLLOTAXIS ANGLE</h2>
+                    <div class="text-3xl font-mono font-bold text-yellow-400" id="angle-display">137.50°</div>
+                </div>
+                <button id="reset-btn"
+                    class="text-xs text-gray-500 hover:text-white transition-colors border border-gray-700 px-2 py-1 rounded">
+                    Reset to Golden Angle
+                </button>
+            </div>
+
+            <input type="range" id="angle-slider" min="130" max="145" step="0.01" value="137.5">
+
+            <div class="flex items-center gap-3 mt-4">
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <div class="relative">
+                        <input type="checkbox" id="auto-check" class="sr-only peer">
+                        <div class="w-10 h-6 bg-gray-700 rounded-full peer-checked:bg-yellow-500 transition-colors">
+                        </div>
+                        <div
+                            class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4">
+                        </div>
+                    </div>
+                    <span class="text-sm text-gray-300 group-hover:text-white transition-colors">Auto Animate</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('angle-slider');
+        const display = document.getElementById('angle-display');
+        const resetBtn = document.getElementById('reset-btn');
+        const autoCheck = document.getElementById('auto-check');
+
+        let width, height;
+        let angle = 137.5;
+        let n = 0;
+        const c = 6; // Spread factor
+        const maxPoints = 3000;
+
+        // Auto animation state
+        let autoTime = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function draw() {
+            // Clear with slight fade? No, clean redraw is better for this pattern
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            const cx = width / 2;
+            const cy = height / 2;
+
+            for (let i = 0; i < maxPoints; i++) {
+                // Phyllotaxis Formula
+                // theta = i * angle (in radians)
+                // r = c * sqrt(i)
+
+                const a = i * (angle * Math.PI / 180);
+                const r = c * Math.sqrt(i);
+
+                const x = r * Math.cos(a) + cx;
+                const y = r * Math.sin(a) + cy;
+
+                // Color
+                // Hue based on angle or index?
+                // Index gives spiral arms color
+                // Angle gives radial color
+                // Let's mix them
+                const hue = (i * 0.5 + angle) % 360;
+                const size = 2 + (i / maxPoints) * 3; // Grow slightly outward
+
+                ctx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function loop() {
+            if (autoCheck.checked) {
+                // Animate angle slowly around 137.5
+                // Sine wave oscillation
+                autoTime += 0.005;
+                const offset = Math.sin(autoTime) * 2; // +/- 2 degrees
+                angle = 137.5 + offset;
+
+                // Update UI
+                slider.value = angle;
+                display.innerText = angle.toFixed(2) + '°';
+            }
+
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Interaction
+        slider.addEventListener('input', (e) => {
+            angle = parseFloat(e.target.value);
+            display.innerText = angle.toFixed(2) + '°';
+            autoCheck.checked = false; // Stop auto on manual interaction
+        });
+
+        resetBtn.addEventListener('click', () => {
+            angle = 137.5;
+            slider.value = angle;
+            display.innerText = angle.toFixed(2) + '°';
+            autoCheck.checked = false;
+        });
+
+        loop();
+
+    </script>
+</body>
+
+</html>
