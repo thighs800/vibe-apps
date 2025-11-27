@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Double Pendulum</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-cyan-900/50">
+            <div class="text-xs text-cyan-300 mb-1 font-bold tracking-wider">CHAOS THEORY</div>
+            <div class="text-[10px] text-gray-400">
+                Click to Reset & Randomize<br>
+                Watch the divergence
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let cx, cy;
+
+        // Physics Constants
+        const g = 1;
+        const m1 = 10;
+        const m2 = 10;
+        const l1 = 150;
+        const l2 = 150;
+
+        // Pendulums
+        const numPendulums = 20;
+        let pendulums = [];
+
+        class DoublePendulum {
+            constructor(a1_offset, hue) {
+                this.a1 = Math.PI / 2 + a1_offset;
+                this.a2 = Math.PI / 2 + a1_offset;
+                this.a1_v = 0;
+                this.a2_v = 0;
+                this.hue = hue;
+                this.path = [];
+                this.maxPath = 200; // Shorter path for performance if we draw segments
+
+                this.x1 = 0;
+                this.y1 = 0;
+                this.x2 = 0;
+                this.y2 = 0;
+            }
+
+            // Derivatives function for RK4
+            getDerivatives(state) {
+                const { a1, a2, a1_v, a2_v } = state;
+
+                const num1 = -g * (2 * m1 + m2) * Math.sin(a1);
+                const num2 = -m2 * g * Math.sin(a1 - 2 * a2);
+                const num3 = -2 * Math.sin(a1 - a2) * m2;
+                const num4 = a2_v * a2_v * l2 + a1_v * a1_v * l1 * Math.cos(a1 - a2);
+                const den1 = l1 * (2 * m1 + m2 - m2 * Math.cos(2 * a1 - 2 * a2));
+
+                const a1_a = (num1 + num2 + num3 * num4) / den1;
+
+                const num5 = 2 * Math.sin(a1 - a2);
+                const num6 = (a1_v * a1_v * l1 * (m1 + m2));
+                const num7 = g * (m1 + m2) * Math.cos(a1);
+                const num8 = a2_v * a2_v * l2 * m2 * Math.cos(a1 - a2);
+                const den2 = l2 * (2 * m1 + m2 - m2 * Math.cos(2 * a1 - 2 * a2));
+
+                const a2_a = (num5 * (num6 + num7 + num8)) / den2;
+
+                return {
+                    a1: a1_v,
+                    a2: a2_v,
+                    a1_v: a1_a,
+                    a2_v: a2_a
+                };
+            }
+
+            update() {
+                // RK4 Integration for stability
+                const dt = 0.2; // Time step
+
+                const state = { a1: this.a1, a2: this.a2, a1_v: this.a1_v, a2_v: this.a2_v };
+
+                const k1 = this.getDerivatives(state);
+
+                const state2 = {
+                    a1: state.a1 + k1.a1 * dt * 0.5,
+                    a2: state.a2 + k1.a2 * dt * 0.5,
+                    a1_v: state.a1_v + k1.a1_v * dt * 0.5,
+                    a2_v: state.a2_v + k1.a2_v * dt * 0.5
+                };
+                const k2 = this.getDerivatives(state2);
+
+                const state3 = {
+                    a1: state.a1 + k2.a1 * dt * 0.5,
+                    a2: state.a2 + k2.a2 * dt * 0.5,
+                    a1_v: state.a1_v + k2.a1_v * dt * 0.5,
+                    a2_v: state.a2_v + k2.a2_v * dt * 0.5
+                };
+                const k3 = this.getDerivatives(state3);
+
+                const state4 = {
+                    a1: state.a1 + k3.a1 * dt,
+                    a2: state.a2 + k3.a2 * dt,
+                    a1_v: state.a1_v + k3.a1_v * dt,
+                    a2_v: state.a2_v + k3.a2_v * dt
+                };
+                const k4 = this.getDerivatives(state4);
+
+                this.a1 += (k1.a1 + 2 * k2.a1 + 2 * k3.a1 + k4.a1) * dt / 6;
+                this.a2 += (k1.a2 + 2 * k2.a2 + 2 * k3.a2 + k4.a2) * dt / 6;
+                this.a1_v += (k1.a1_v + 2 * k2.a1_v + 2 * k3.a1_v + k4.a1_v) * dt / 6;
+                this.a2_v += (k1.a2_v + 2 * k2.a2_v + 2 * k3.a2_v + k4.a2_v) * dt / 6;
+
+                // Damping to prevent energy explosion over long time
+                this.a1_v *= 0.999;
+                this.a2_v *= 0.999;
+
+                // Cartesian
+                this.x1 = l1 * Math.sin(this.a1);
+                this.y1 = l1 * Math.cos(this.a1);
+                this.x2 = this.x1 + l2 * Math.sin(this.a2);
+                this.y2 = this.y1 + l2 * Math.cos(this.a2);
+
+                this.path.push({ x: this.x2, y: this.y2 });
+                if (this.path.length > this.maxPath) {
+                    this.path.shift();
+                }
+            }
+
+            draw(ctx, cx, cy) {
+                // Draw Trail with Fade
+                if (this.path.length > 1) {
+                    ctx.beginPath();
+                    // Draw segments to handle alpha gradient? 
+                    // Or just one line with global alpha?
+                    // For performance with 20 pendulums, one line is better.
+                    // But we want the tail to fade.
+
+                    // Let's draw it as a few segments or use a gradient stroke?
+                    // Gradient stroke is hard for arbitrary path.
+                    // Let's just use global alpha and draw the whole thing? No, tail won't fade.
+
+                    // Optimization: Draw 3 segments with different alphas
+                    const segLen = Math.floor(this.path.length / 3);
+
+                    for (let j = 0; j < 3; j++) {
+                        ctx.beginPath();
+                        const start = j * segLen;
+                        const end = (j === 2) ? this.path.length : (j + 1) * segLen + 1;
+
+                        if (start >= this.path.length - 1) continue;
+
+                        const pStart = this.path[start];
+                        ctx.moveTo(cx + pStart.x, cy + pStart.y);
+
+                        for (let i = start + 1; i < end; i++) {
+                            if (i >= this.path.length) break;
+                            ctx.lineTo(cx + this.path[i].x, cy + this.path[i].y);
+                        }
+
+                        const alpha = (j + 1) / 3;
+                        ctx.strokeStyle = `hsla(${this.hue}, 100%, 60%, ${alpha})`;
+                        ctx.lineWidth = 2;
+                        // Glow only on the last segment (head)
+                        if (j === 2) {
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = `hsla(${this.hue}, 100%, 60%, 1)`;
+                        } else {
+                            ctx.shadowBlur = 0;
+                        }
+                        ctx.stroke();
+                    }
+                    ctx.shadowBlur = 0;
+                }
+
+                // Draw Bob
+                ctx.fillStyle = `hsla(${this.hue}, 100%, 80%, 1)`;
+                ctx.beginPath();
+                ctx.arc(cx + this.x2, cy + this.y2, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function init() {
+            pendulums = [];
+            const startAngle = Math.PI / 2;
+
+            for (let i = 0; i < numPendulums; i++) {
+                // Tiny offset
+                const offset = i * 0.00005; // Even smaller offset for longer sync
+                const hue = (i / numPendulums) * 360;
+
+                const p = new DoublePendulum(offset, hue);
+                p.a1 = startAngle + offset;
+                p.a2 = startAngle + offset;
+                pendulums.push(p);
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            cx = width / 2;
+            cy = height / 3; // Move pivot up
+        }
+        window.addEventListener('resize', resize);
+        resize();
+        init();
+
+        function loop() {
+            // Clear with slight fade for motion blur?
+            // Or full clear?
+            // The requirement said "Background rgba(0, 0, 0, 0.02)".
+            // Let's try that for the "long afterimages" effect IN ADDITION to the line trail.
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // Faster fade than 0.02 to avoid mess
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw pivot
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            for (let p of pendulums) {
+                p.update();
+                p.draw(ctx, cx, cy);
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // Interaction
+        window.addEventListener('mousedown', () => {
+            const randomStart = (Math.random() * Math.PI * 2);
+
+            pendulums = [];
+            for (let i = 0; i < numPendulums; i++) {
+                const offset = i * 0.00005;
+                const hue = (i / numPendulums) * 360;
+
+                const p = new DoublePendulum(offset, hue);
+                p.a1 = randomStart + offset;
+                p.a2 = randomStart + offset;
+                pendulums.push(p);
+            }
+        });
+
+        // Touch
+        window.addEventListener('touchstart', () => {
+            const randomStart = (Math.random() * Math.PI * 2);
+            pendulums = [];
+            for (let i = 0; i < numPendulums; i++) {
+                const offset = i * 0.00005;
+                const hue = (i / numPendulums) * 360;
+                const p = new DoublePendulum(offset, hue);
+                p.a1 = randomStart + offset;
+                p.a2 = randomStart + offset;
+                pendulums.push(p);
+            }
+        });
+
+        loop();
+
+    </script>
+</body>
+
+</html>
