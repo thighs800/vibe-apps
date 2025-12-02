@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Spider</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            cursor: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .cursor-ring {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 40px;
+            height: 40px;
+            border: 2px solid white;
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            mix-blend-mode: difference;
+            z-index: 100;
+            transition: width 0.2s, height 0.2s;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-pink-400 hover:text-pink-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-pink-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-pink-900/50">
+            <div class="text-xs text-pink-300 mb-1 font-bold tracking-wider">IK ENGINE v2.0</div>
+            <div class="text-[10px] text-gray-400">
+                Move Mouse to Guide<br>
+                Tripod Gait Active
+            </div>
+        </div>
+    </div>
+
+    <div id="cursor" class="cursor-ring"></div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const cursor = document.getElementById('cursor');
+
+        let width, height;
+
+        // Mouse / Target
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // Spider Config
+        const spider = {
+            x: 0,
+            y: 0,
+            angle: 0,
+            radius: 35,
+            legs: []
+        };
+
+        const numLegs = 8;
+        const legLength1 = 50; // Thigh
+        const legLength2 = 70; // Shin
+        const stepThreshold = 80; // Distance to trigger step
+        const stepHeight = 30;
+        const stepDuration = 12; // Frames
+
+        // Gait Groups (Tripod-ish for 8 legs)
+        // Group A: Right-1, Right-3, Left-2, Left-4 (Indices: 0, 2, 5, 7)
+        // Group B: Right-2, Right-4, Left-1, Left-3 (Indices: 1, 3, 4, 6)
+        // Note: My previous indexing was 0-3 Right, 4-7 Left.
+        // 0: R1, 1: R2, 2: R3, 3: R4
+        // 4: L1, 5: L2, 6: L3, 7: L4
+        const groupA_indices = [0, 2, 5, 7];
+        const groupB_indices = [1, 3, 4, 6];
+
+        class Leg {
+            constructor(id, angleOffset, side) {
+                this.id = id;
+                this.angleOffset = angleOffset;
+                this.side = side;
+
+                this.footX = 0;
+                this.footY = 0;
+
+                this.isMoving = false;
+                this.moveProgress = 0;
+                this.startX = 0;
+                this.startY = 0;
+                this.targetX = 0;
+                this.targetY = 0;
+                this.lift = 0;
+
+                // Assign Group
+                if (groupA_indices.includes(id)) this.group = 'A';
+                else this.group = 'B';
+            }
+
+            update(bodyX, bodyY, bodyAngle, oppositeGroupMoving) {
+                // Ideal Position
+                const restDist = 110;
+                const legAngle = bodyAngle + this.angleOffset;
+
+                const idealX = bodyX + Math.cos(legAngle) * restDist;
+                const idealY = bodyY + Math.sin(legAngle) * restDist;
+
+                const dx = idealX - this.footX;
+                const dy = idealY - this.footY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Step Trigger Logic
+                if (!this.isMoving) {
+                    // Only step if:
+                    // 1. Distance > Threshold
+                    // 2. Opposite group is NOT moving (Stability)
+                    if (dist > stepThreshold && !oppositeGroupMoving) {
+                        this.startStep(idealX, idealY);
+                    }
+                }
+
+                if (this.isMoving) {
+                    this.moveProgress += 1 / stepDuration;
+                    if (this.moveProgress >= 1) {
+                        this.moveProgress = 1;
+                        this.isMoving = false;
+                        this.footX = this.targetX;
+                        this.footY = this.targetY;
+                        this.lift = 0;
+                    } else {
+                        const t = this.moveProgress;
+                        // Smoothstep
+                        const ease = t * t * (3 - 2 * t);
+
+                        this.footX = this.startX + (this.targetX - this.startX) * ease;
+                        this.footY = this.startY + (this.targetY - this.startY) * ease;
+
+                        // Parabolic Lift
+                        this.lift = Math.sin(t * Math.PI) * stepHeight;
+                    }
+                }
+            }
+
+            startStep(tx, ty) {
+                // Add velocity prediction?
+                // If body is moving, aim further ahead.
+                // Simple prediction:
+                const lead = 30; // pixels ahead
+                const moveAngle = Math.atan2(mouseY - spider.y, mouseX - spider.x);
+                // Only apply if body is actually moving significantly
+                const bodySpeed = Math.hypot(mouseX - spider.x, mouseY - spider.y) * 0.05;
+
+                let predX = tx;
+                let predY = ty;
+
+                if (bodySpeed > 1) {
+                    predX += Math.cos(moveAngle) * lead;
+                    predY += Math.sin(moveAngle) * lead;
+                }
+
+                this.isMoving = true;
+                this.moveProgress = 0;
+                this.startX = this.footX;
+                this.startY = this.footY;
+                this.targetX = predX;
+                this.targetY = predY;
+            }
+
+            draw(ctx, bodyX, bodyY, bodyAngle) {
+                const hipDist = spider.radius * 0.85;
+                const legAngle = bodyAngle + this.angleOffset;
+                const hipX = bodyX + Math.cos(legAngle) * hipDist;
+                const hipY = bodyY + Math.sin(legAngle) * hipDist;
+
+                // IK Solver
+                const dx = this.footX - hipX;
+                const dy = this.footY - hipY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                const maxReach = legLength1 + legLength2 - 2;
+                let reach = Math.min(dist, maxReach);
+
+                const angleToFoot = Math.atan2(dy, dx);
+
+                const cosTheta = (legLength1 * legLength1 + reach * reach - legLength2 * legLength2) / (2 * legLength1 * reach);
+                const theta = Math.acos(Math.max(-1, Math.min(1, cosTheta)));
+
+                // Knee bending direction
+                // Right legs (side=1) bend +theta? Left legs (side=-1) bend -theta?
+                // Visual check:
+                // Right leg: Foot is to the right. AngleToFoot is ~0.
+                // Knee should stick out "up/back" or "down/forward"?
+                // Usually "out".
+                // Let's try consistent direction based on side.
+                const kneeAngle = angleToFoot + (this.side * theta * 1.0); // Flip sign if needed
+
+                const kneeX = hipX + Math.cos(kneeAngle) * legLength1;
+                const kneeY = hipY + Math.sin(kneeAngle) * legLength1;
+
+                // Shadow
+                if (this.lift > 0.1) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.beginPath();
+                    ctx.arc(this.footX, this.footY + 5, 4 * (1 - this.lift / stepHeight), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Segments
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // Thigh (Pink)
+                ctx.strokeStyle = '#ff00ff';
+                ctx.lineWidth = 5;
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = '#ff00ff';
+                ctx.beginPath();
+                ctx.moveTo(hipX, hipY);
+                ctx.lineTo(kneeX, kneeY - this.lift * 0.5);
+                ctx.stroke();
+
+                // Shin (Cyan)
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 3;
+                ctx.shadowColor = '#00ffff';
+                ctx.beginPath();
+                ctx.moveTo(kneeX, kneeY - this.lift * 0.5);
+                ctx.lineTo(this.footX, this.footY - this.lift);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // Joints
+                ctx.fillStyle = 'white';
+                ctx.beginPath(); ctx.arc(hipX, hipY, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(kneeX, kneeY - this.lift * 0.5, 2, 0, Math.PI * 2); ctx.fill();
+
+                // Foot
+                ctx.fillStyle = this.isMoving ? '#ffff00' : 'white';
+                ctx.beginPath(); ctx.arc(this.footX, this.footY - this.lift, 3, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        function init() {
+            spider.x = width / 2;
+            spider.y = height / 2;
+            spider.legs = [];
+
+            // 8 Legs
+            // Right Side: 0, 1, 2, 3
+            // Left Side: 4, 5, 6, 7
+
+            // Angles:
+            // Right: -45, -15, 15, 45 (spread around 0)
+            // Left: 225, 195, 165, 135 (spread around 180)
+
+            const spread = Math.PI / 2.5;
+
+            for (let i = 0; i < 8; i++) {
+                let angle, side;
+
+                if (i < 4) {
+                    // Right
+                    side = 1;
+                    // Map 0..3 to -spread/2 .. spread/2
+                    const t = i / 3;
+                    angle = -spread + t * (spread * 2);
+                    // Adjust to face right (0)
+                    // Actually let's center around 0
+                    // -60, -20, 20, 60?
+                } else {
+                    // Left
+                    side = -1;
+                    const t = (i - 4) / 3;
+                    angle = Math.PI - (-spread + t * (spread * 2));
+                }
+
+                const leg = new Leg(i, angle, side);
+
+                // Init at rest
+                const restDist = 110;
+                leg.footX = spider.x + Math.cos(angle) * restDist;
+                leg.footY = spider.y + Math.sin(angle) * restDist;
+                leg.targetX = leg.footX;
+                leg.targetY = leg.footY;
+
+                spider.legs.push(leg);
+            }
+
+            mouseX = width / 2;
+            mouseY = height / 2;
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            if (spider.legs.length === 0) init();
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function loop() {
+            // Body Movement
+            const dx = mouseX - spider.x;
+            const dy = mouseY - spider.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Stop if close
+            if (dist > 5) {
+                spider.x += dx * 0.04;
+                spider.y += dy * 0.04;
+
+                // Rotation
+                const targetAngle = Math.atan2(dy, dx);
+                let diff = targetAngle - spider.angle;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                spider.angle += diff * 0.04;
+            }
+
+            // Draw BG
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            // Grid
+            ctx.strokeStyle = '#111';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < width; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+            for (let y = 0; y < height; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+
+            // Check Gait State
+            const groupAMoving = spider.legs.some(l => l.group === 'A' && l.isMoving);
+            const groupBMoving = spider.legs.some(l => l.group === 'B' && l.isMoving);
+
+            // Update Legs
+            for (let l of spider.legs) {
+                // Pass info about OPPOSITE group
+                const oppositeMoving = l.group === 'A' ? groupBMoving : groupAMoving;
+                l.update(spider.x, spider.y, spider.angle, oppositeMoving);
+                l.draw(ctx, spider.x, spider.y, spider.angle);
+            }
+
+            // Draw Body
+            ctx.save();
+            ctx.translate(spider.x, spider.y);
+            ctx.rotate(spider.angle);
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00ffff';
+            ctx.fillStyle = '#111';
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+
+            // Sci-fi Body Shape
+            ctx.beginPath();
+            ctx.moveTo(20, 0);
+            ctx.lineTo(10, 15);
+            ctx.lineTo(-15, 10);
+            ctx.lineTo(-15, -10);
+            ctx.lineTo(10, -15);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Eyes
+            ctx.fillStyle = '#ff00ff';
+            ctx.shadowColor = '#ff00ff';
+            ctx.beginPath(); ctx.arc(15, -5, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(15, 5, 3, 0, Math.PI * 2); ctx.fill();
+
+            ctx.restore();
+
+            // Cursor
+            cursor.style.left = mouseX + 'px';
+            cursor.style.top = mouseY + 'px';
+
+            requestAnimationFrame(loop);
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+
+        init();
+        loop();
+
+    </script>
+</body>
+
+</html>
