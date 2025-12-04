@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Rain</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-blue-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div id="overlay"
+        class="absolute inset-0 flex items-center justify-center bg-black/80 z-40 transition-opacity duration-1000">
+        <div class="text-center">
+            <h1 class="text-4xl font-bold text-blue-500 mb-4 tracking-widest glow">CYBER RAIN</h1>
+            <p class="text-gray-400 mb-8">Procedural Audio & Visuals</p>
+            <button id="startBtn"
+                class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold transition-all shadow-[0_0_20px_rgba(37,99,235,0.5)]">
+                ENTER THE RAIN
+            </button>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('startBtn');
+
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let audioCtx;
+        let isAudioStarted = false;
+
+        // Visuals
+        const rainDrops = [];
+        const bokeh = [];
+        let lightning = 0; // Opacity
+
+        // Init Bokeh (Background Lights)
+        function initBokeh() {
+            bokeh.length = 0;
+            for (let i = 0; i < 30; i++) {
+                bokeh.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    r: 20 + Math.random() * 100,
+                    color: `hsla(${Math.random() * 60 + 240}, 70%, 50%, ${Math.random() * 0.2 + 0.1})`, // Blue/Purple
+                    vx: (Math.random() - 0.5) * 0.2,
+                    vy: (Math.random() - 0.5) * 0.2
+                });
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initBokeh();
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Audio Engine
+        async function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Rain (Pink Noise)
+            const bufferSize = 2 * audioCtx.sampleRate;
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            let lastOut = 0;
+            for (let i = 0; i < bufferSize; i++) {
+                let white = Math.random() * 2 - 1;
+                output[i] = (lastOut + (0.02 * white)) / 1.02;
+                lastOut = output[i];
+                output[i] *= 3.5;
+            }
+
+            const rainNode = audioCtx.createBufferSource();
+            rainNode.buffer = noiseBuffer;
+            rainNode.loop = true;
+
+            const rainFilter = audioCtx.createBiquadFilter();
+            rainFilter.type = 'lowpass';
+            rainFilter.frequency.value = 800;
+
+            const rainGain = audioCtx.createGain();
+            rainGain.gain.value = 0.15;
+
+            rainNode.connect(rainFilter);
+            rainFilter.connect(rainGain);
+            rainGain.connect(audioCtx.destination);
+            rainNode.start();
+
+            isAudioStarted = true;
+            overlay.style.opacity = 0;
+            setTimeout(() => overlay.style.display = 'none', 1000);
+        }
+
+        function playThunder() {
+            if (!audioCtx) return;
+
+            // Simple Thunder: Lowpass noise burst + Reverb
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(50, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5);
+
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 200;
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 2);
+        }
+
+        startBtn.addEventListener('click', () => {
+            initAudio();
+            playThunder();
+            lightning = 1.0;
+        });
+
+        canvas.addEventListener('mousedown', () => {
+            if (isAudioStarted) {
+                playThunder();
+                lightning = 1.0;
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        function loop() {
+            // Update
+            // Bokeh Parallax
+            const px = (mouseX - width / 2) * 0.05;
+            const py = (mouseY - height / 2) * 0.05;
+
+            // Rain
+            if (rainDrops.length < 500) {
+                rainDrops.push({
+                    x: Math.random() * width,
+                    y: -10,
+                    l: Math.random() * 20 + 10,
+                    v: Math.random() * 15 + 15,
+                    a: Math.random() * 0.5 + 0.1
+                });
+            }
+
+            // Draw
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Bokeh
+            ctx.globalCompositeOperation = 'screen';
+            for (let b of bokeh) {
+                b.x += b.vx;
+                b.y += b.vy;
+                if (b.x < -100) b.x = width + 100;
+                if (b.x > width + 100) b.x = -100;
+                if (b.y < -100) b.y = height + 100;
+                if (b.y > height + 100) b.y = -100;
+
+                ctx.fillStyle = b.color;
+                ctx.beginPath();
+                ctx.arc(b.x + px, b.y + py, b.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Darken background slightly to make rain pop
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Rain
+            ctx.strokeStyle = 'rgba(150, 200, 255, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = rainDrops.length - 1; i >= 0; i--) {
+                const r = rainDrops[i];
+                r.y += r.v;
+
+                ctx.moveTo(r.x, r.y);
+                ctx.lineTo(r.x, r.y - r.l);
+
+                if (r.y > height) {
+                    rainDrops.splice(i, 1);
+                }
+            }
+            ctx.stroke();
+
+            // Lightning
+            if (lightning > 0) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${lightning})`;
+                ctx.fillRect(0, 0, width, height);
+                lightning *= 0.9;
+                if (lightning < 0.01) lightning = 0;
+            }
+
+            // Random Thunder
+            if (isAudioStarted && Math.random() < 0.001) {
+                playThunder();
+                lightning = 0.8 + Math.random() * 0.2;
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon DNA Helix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-cyan-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-cyan-900/50">
+            <div class="text-xs text-cyan-300 mb-1 font-bold tracking-wider">GENOME VIEWER</div>
+            <div class="text-[10px] text-gray-400">
+                Drag to Rotate<br>
+                Scroll to Zoom
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+
+        // 3D Config
+        let rotationY = 0;
+        let rotationX = 0;
+        let zoom = 1;
+
+        const NUM_PAIRS = 40;
+        const RADIUS = 100;
+        const HEIGHT = 600;
+        const TURNS = 3;
+
+        // Interaction
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let autoRotate = true;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function project(x, y, z) {
+            // Simple perspective projection
+            const fov = 800;
+            const scale = (fov + zoom * 100) / (fov + z);
+            return {
+                x: width / 2 + x * scale,
+                y: height / 2 + y * scale,
+                scale: scale,
+                z: z // Keep z for sorting
+            };
+        }
+
+        function rotate(x, y, z, rx, ry) {
+            // Rotate Y
+            let x1 = x * Math.cos(ry) - z * Math.sin(ry);
+            let z1 = x * Math.sin(ry) + z * Math.cos(ry);
+
+            // Rotate X
+            let y2 = y * Math.cos(rx) - z1 * Math.sin(rx);
+            let z2 = y * Math.sin(rx) + z1 * Math.cos(rx);
+
+            return { x: x1, y: y2, z: z2 };
+        }
+
+        function draw() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            // Generate Geometry
+            const particles = [];
+
+            for (let i = 0; i < NUM_PAIRS; i++) {
+                const t = i / NUM_PAIRS;
+                const angle = t * Math.PI * 2 * TURNS;
+                const y = (t - 0.5) * HEIGHT;
+
+                // Strand 1
+                const x1 = Math.cos(angle) * RADIUS;
+                const z1 = Math.sin(angle) * RADIUS;
+
+                // Strand 2 (Opposite)
+                const x2 = Math.cos(angle + Math.PI) * RADIUS;
+                const z2 = Math.sin(angle + Math.PI) * RADIUS;
+
+                // Rotate
+                const p1 = rotate(x1, y, z1, rotationX, rotationY);
+                const p2 = rotate(x2, y, z2, rotationX, rotationY);
+
+                // Project
+                const proj1 = project(p1.x, p1.y, p1.z);
+                const proj2 = project(p2.x, p2.y, p2.z);
+
+                // Add to list for sorting
+                // We add the connector (Base Pair) as a single item?
+                // Or draw it if both ends are visible?
+                // Let's treat the pair as one renderable object with average Z
+
+                particles.push({
+                    type: 'pair',
+                    z: (p1.z + p2.z) / 2,
+                    p1: proj1,
+                    p2: proj2,
+                    hue: (t * 360 + Date.now() * 0.05) % 360
+                });
+            }
+
+            // Sort by Z (Painter's Algorithm)
+            particles.sort((a, b) => b.z - a.z);
+
+            // Draw
+            for (let p of particles) {
+                const alpha = Math.max(0.1, Math.min(1, (p.p1.scale + p.p2.scale) / 2 * 0.6));
+
+                // Connector
+                ctx.strokeStyle = `hsla(${p.hue}, 100%, 50%, ${alpha * 0.5})`;
+                ctx.lineWidth = 2 * ((p.p1.scale + p.p2.scale) / 2);
+                ctx.beginPath();
+                ctx.moveTo(p.p1.x, p.p1.y);
+                ctx.lineTo(p.p2.x, p.p2.y);
+                ctx.stroke();
+
+                // Node 1
+                ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(p.p1.x, p.p1.y, 6 * p.p1.scale, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Node 2
+                ctx.fillStyle = `hsla(${p.hue + 180}, 100%, 60%, ${alpha})`; // Complementary color
+                ctx.beginPath();
+                ctx.arc(p.p2.x, p.p2.y, 6 * p.p2.scale, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (autoRotate) {
+                rotationY += 0.01;
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // Interaction
+        window.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            autoRotate = false;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastMouseX;
+                const dy = e.clientY - lastMouseY;
+
+                rotationY += dx * 0.01;
+                rotationX += dy * 0.01;
+
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        window.addEventListener('wheel', (e) => {
+            zoom += e.deltaY * -0.001;
+            zoom = Math.max(0.1, Math.min(5, zoom));
+        });
+
+        // Touch
+        window.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            autoRotate = false;
+            lastMouseX = e.touches[0].clientX;
+            lastMouseY = e.touches[0].clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                const dx = e.touches[0].clientX - lastMouseX;
+                const dy = e.touches[0].clientY - lastMouseY;
+                rotationY += dx * 0.01;
+                rotationX += dy * 0.01;
+                lastMouseX = e.touches[0].clientX;
+                lastMouseY = e.touches[0].clientY;
+                e.preventDefault();
+            }
+        });
+
+        window.addEventListener('touchend', () => isDragging = false);
+
+        draw();
+
+    </script>
+</body>
+
+</html>

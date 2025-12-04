@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Ant Farm</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-red-400 hover:text-red-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-red-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-red-900/50">
+            <div class="text-xs text-red-300 mb-1 font-bold tracking-wider">COLONY SIM</div>
+            <div class="text-[10px] text-gray-400">
+                Left Click: Place Food<br>
+                Right Click: Reset
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        let width, height;
+
+        // Simulation Grid (Downscaled for performance)
+        const GRID_SCALE = 2; // 1 simulation pixel = 2 screen pixels
+        let gridWidth, gridHeight;
+        let grid; // Float32Array for smoother decay
+
+        // Entities
+        let ants = [];
+        let foods = [];
+        let nest = { x: 0, y: 0, r: 30 };
+
+        // Offscreen canvas for trails
+        let trailCanvas = document.createElement('canvas');
+        let trailCtx = trailCanvas.getContext('2d');
+
+        // Config
+        const NUM_ANTS = 2500;
+        const ANT_SPEED = 2;
+        const SENSOR_ANGLE = Math.PI / 4;
+        const SENSOR_DIST = 20;
+        const TURN_SPEED = 0.5;
+        const EVAPORATION = 0.96;
+        const TRAIL_STRENGTH = 50;
+
+        class Ant {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = nest.x;
+                this.y = nest.y;
+                this.angle = Math.random() * Math.PI * 2;
+                this.hasFood = false;
+            }
+
+            update() {
+                // Move
+                this.x += Math.cos(this.angle) * ANT_SPEED;
+                this.y += Math.sin(this.angle) * ANT_SPEED;
+
+                // Bounce
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.angle = Math.atan2(height / 2 - this.y, width / 2 - this.x) + (Math.random() - 0.5);
+                    this.x = Math.max(0, Math.min(width, this.x));
+                    this.y = Math.max(0, Math.min(height, this.y));
+                }
+
+                if (this.hasFood) {
+                    // RETURNING
+                    // Drop Pheromone (Red)
+                    // Map to grid coords
+                    const gx = Math.floor(this.x / GRID_SCALE);
+                    const gy = Math.floor(this.y / GRID_SCALE);
+                    if (gx >= 0 && gx < gridWidth && gy >= 0 && gy < gridHeight) {
+                        grid[gy * gridWidth + gx] += TRAIL_STRENGTH;
+                    }
+
+                    // Head to Nest
+                    const dx = nest.x - this.x;
+                    const dy = nest.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < nest.r) {
+                        this.hasFood = false;
+                        this.angle += Math.PI;
+                    } else {
+                        // Steer to nest with some randomness
+                        const targetAngle = Math.atan2(dy, dx);
+                        let diff = targetAngle - this.angle;
+                        while (diff > Math.PI) diff -= Math.PI * 2;
+                        while (diff < -Math.PI) diff += Math.PI * 2;
+                        this.angle += diff * 0.15;
+                        this.angle += (Math.random() - 0.5) * 0.1;
+                    }
+                } else {
+                    // FORAGING
+                    // Check Food
+                    let found = false;
+                    for (let f of foods) {
+                        const dx = f.x - this.x;
+                        const dy = f.y - this.y;
+                        if (dx * dx + dy * dy < f.r * f.r) {
+                            this.hasFood = true;
+                            this.angle += Math.PI;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        // Sense Pheromones
+                        const left = this.sense(-SENSOR_ANGLE);
+                        const center = this.sense(0);
+                        const right = this.sense(SENSOR_ANGLE);
+
+                        const randomSteer = (Math.random() - 0.5) * 0.1;
+
+                        if (center > left && center > right) {
+                            this.angle += randomSteer;
+                        } else if (center < left && center < right) {
+                            this.angle += (Math.random() - 0.5) * 2 * TURN_SPEED;
+                        } else if (left > right) {
+                            this.angle -= TURN_SPEED;
+                        } else if (right > left) {
+                            this.angle += TURN_SPEED;
+                        } else {
+                            this.angle += randomSteer;
+                        }
+                    }
+                }
+            }
+
+            sense(angleOffset) {
+                const angle = this.angle + angleOffset;
+                const sx = this.x + Math.cos(angle) * SENSOR_DIST;
+                const sy = this.y + Math.sin(angle) * SENSOR_DIST;
+
+                const gx = Math.floor(sx / GRID_SCALE);
+                const gy = Math.floor(sy / GRID_SCALE);
+
+                if (gx >= 0 && gx < gridWidth && gy >= 0 && gy < gridHeight) {
+                    return grid[gy * gridWidth + gx];
+                }
+                return 0;
+            }
+        }
+
+        function init() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+
+            // Grid Init
+            gridWidth = Math.ceil(width / GRID_SCALE);
+            gridHeight = Math.ceil(height / GRID_SCALE);
+            grid = new Float32Array(gridWidth * gridHeight);
+
+            trailCanvas.width = gridWidth;
+            trailCanvas.height = gridHeight;
+
+            nest.x = width / 2;
+            nest.y = height / 2;
+
+            ants = [];
+            for (let i = 0; i < NUM_ANTS; i++) ants.push(new Ant());
+
+            foods = [];
+        }
+
+        function updateGrid() {
+            for (let i = 0; i < grid.length; i++) {
+                grid[i] *= EVAPORATION;
+                if (grid[i] < 0.1) grid[i] = 0;
+            }
+        }
+
+        function draw() {
+            // 1. Draw Trails to offscreen canvas
+            // We construct ImageData from grid
+            const imgData = trailCtx.createImageData(gridWidth, gridHeight);
+            const data = imgData.data;
+
+            for (let i = 0; i < grid.length; i++) {
+                const val = grid[i];
+                if (val > 1) {
+                    const idx = i * 4;
+                    // Red Pheromone
+                    // Intensity based on value
+                    const intensity = Math.min(255, val * 2);
+                    data[idx] = 255;     // R
+                    data[idx + 1] = 50;    // G
+                    data[idx + 2] = 50;    // B
+                    data[idx + 3] = intensity; // A
+                }
+            }
+            trailCtx.putImageData(imgData, 0, 0);
+
+            // 2. Main Canvas
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Trails (Scaled up)
+            ctx.globalCompositeOperation = 'screen'; // Additive-ish
+            ctx.drawImage(trailCanvas, 0, 0, width, height);
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Draw Nest
+            ctx.fillStyle = 'rgba(0, 100, 255, 0.2)';
+            ctx.beginPath();
+            ctx.arc(nest.x, nest.y, nest.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#0088ff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Draw Food
+            ctx.fillStyle = '#00ff00';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ff00';
+            for (let f of foods) {
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+
+            // Draw Ants
+            for (let ant of ants) {
+                if (ant.hasFood) {
+                    ctx.fillStyle = '#00ff00';
+                    // ctx.shadowBlur = 5;
+                    // ctx.shadowColor = '#00ff00';
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    // ctx.shadowBlur = 0;
+                }
+                ctx.fillRect(ant.x - 1, ant.y - 1, 2, 2);
+            }
+        }
+
+        function loop() {
+            for (let ant of ants) ant.update();
+            updateGrid();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        window.addEventListener('resize', init);
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                foods.push({ x: e.clientX, y: e.clientY, r: 15 });
+            } else if (e.button === 2) {
+                foods = [];
+                grid.fill(0);
+                ants.forEach(a => a.reset());
+            }
+        });
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        init();
+        loop();
+
+    </script>
+</body>
+
+</html>
