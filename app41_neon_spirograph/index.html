@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Spirograph</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navigation -->
+    <nav class="absolute top-4 left-4 z-50">
+        <a href="../index.html"
+            class="inline-flex items-center gap-2 text-fuchsia-400 hover:text-fuchsia-300 transition-colors bg-black/50 px-4 py-2 rounded-lg border border-fuchsia-900/50 font-medium backdrop-blur-sm">
+            <span>←</span> Home
+        </a>
+    </nav>
+
+    <!-- UI Overlay -->
+    <div class="absolute bottom-4 left-4 z-50 pointer-events-none select-none">
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-lg border border-fuchsia-900/50">
+            <div class="text-xs text-fuchsia-300 mb-1 font-bold tracking-wider">GENERATIVE ENGINE</div>
+            <div class="text-[10px] text-gray-400">
+                Move Mouse to Mutate<br>
+                Click to Reset
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let cx, cy;
+
+        // State
+        let t = 0;
+        let maxT = 2000; // Reset after this much drawing
+        let isDrawing = true;
+
+        // Parameters
+        let R1 = 150;
+        let R2 = 100;
+        let R3 = 50;
+        let k1 = 10;
+        let k2 = 20;
+
+        // Target Parameters
+        let targetR2 = 100;
+        let targetK1 = 10;
+
+        // Color
+        let hue = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            cx = width / 2;
+            cy = height / 2;
+            fullReset();
+        }
+        window.addEventListener('resize', resize);
+
+        function fullReset() {
+            // Click: New color, random params
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+            t = 0;
+            hue = Math.random() * 360;
+
+            R1 = 80 + Math.random() * 100;
+            R2 = 50 + Math.random() * 80;
+            R3 = 20 + Math.random() * 60;
+            k1 = 5 + Math.random() * 15;
+            k2 = 10 + Math.random() * 20;
+
+            targetR2 = R2;
+            targetK1 = k1;
+        }
+
+        function autoReset() {
+            // Auto: Slight mutation, clear, redraw
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+            t = 0;
+
+            // Mutate slightly
+            R1 += (Math.random() - 0.5) * 20;
+            R3 += (Math.random() - 0.5) * 10;
+            k2 += (Math.random() - 0.5) * 2;
+
+            // Keep R2 and k1 close to mouse targets but allow drift?
+            // Actually, R2 and k1 are controlled by mouse, so we don't mutate them much
+            // or we let the mouse take over.
+        }
+
+        function draw() {
+            // Smooth parameter update from Mouse
+            // Mouse controls R2 and k1
+            R2 += (targetR2 - R2) * 0.1;
+            k1 += (targetK1 - k1) * 0.1;
+
+            // Setup context
+            ctx.translate(cx, cy);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineWidth = 0.8;
+
+            // Batch draw
+            const stepsPerFrame = 200;
+            const dt = 0.02;
+
+            ctx.beginPath();
+            let startX, startY;
+
+            // Move to start
+            {
+                const x = R1 * Math.cos(t) + R2 * Math.cos(k1 * t) + R3 * Math.cos(k2 * t);
+                const y = R1 * Math.sin(t) + R2 * Math.sin(k1 * t) + R3 * Math.sin(k2 * t);
+                ctx.moveTo(x, y);
+            }
+
+            for (let i = 0; i < stepsPerFrame; i++) {
+                t += dt;
+                const x = R1 * Math.cos(t) + R2 * Math.cos(k1 * t) + R3 * Math.cos(k2 * t);
+                const y = R1 * Math.sin(t) + R2 * Math.sin(k1 * t) + R3 * Math.sin(k2 * t);
+                ctx.lineTo(x, y);
+            }
+
+            ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.4)`;
+            ctx.stroke();
+
+            // Reset transform
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+            // Color cycle
+            hue += 0.5;
+
+            // Auto Reset
+            if (t > maxT) {
+                autoReset();
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // Interaction
+        window.addEventListener('mousemove', (e) => {
+            // Map Mouse X -> R2 (Radius) : 20 to 200
+            // Map Mouse Y -> k1 (Frequency) : 2 to 30
+            const nx = e.clientX / width;
+            const ny = e.clientY / height;
+
+            targetR2 = 20 + nx * 180;
+            targetK1 = 2 + ny * 28;
+        });
+
+        window.addEventListener('click', fullReset);
+
+        window.addEventListener('touchmove', (e) => {
+            const nx = e.touches[0].clientX / width;
+            const ny = e.touches[0].clientY / height;
+            targetR2 = 20 + nx * 180;
+            targetK1 = 2 + ny * 28;
+            e.preventDefault();
+        }, { passive: false });
+
+        resize();
+        draw();
+
+    </script>
+</body>
+
+</html>
